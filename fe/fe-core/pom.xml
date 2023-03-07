@@ -24,7 +24,6 @@ under the License.
         <groupId>org.apache.doris</groupId>
         <version>${revision}</version>
         <artifactId>fe</artifactId>
-        <relativePath>../pom.xml</relativePath>
     </parent>
     <artifactId>fe-core</artifactId>
     <packaging>jar</packaging>
@@ -36,6 +35,8 @@ under the License.
         <awssdk.version>2.17.257</awssdk.version>
         <protoc.artifact>com.google.protobuf:protoc:${protobuf.version}</protoc.artifact>
         <grpc.java.artifact>io.grpc:protoc-gen-grpc-java:${grpc.version}</grpc.java.artifact>
+        <ant.version>1.10.13</ant.version>
+        <log4j.version></log4j.version>
     </properties>
     <profiles>
         <profile>
@@ -176,6 +177,7 @@ under the License.
             <artifactId>jackson-core</artifactId>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.codehaus.jackson/jackson-mapper-asl -->
+        <!--FIXME @CalvinKirs-->
         <dependency>
             <groupId>org.codehaus.jackson</groupId>
             <artifactId>jackson-mapper-asl</artifactId>
@@ -265,13 +267,14 @@ under the License.
         <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-slf4j-impl</artifactId>
-            <version>${log4j2.version}</version>
+            <version>2.20.0</version>
         </dependency>
+
         <!-- https://mvnrepository.com/artifact/org.slf4j/slf4j-log4j12 -->
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-log4j12</artifactId>
-            <version>1.7.9</version>
+            <version>2.0.6</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/io.dropwizard.metrics/metrics-core -->
         <dependency>
@@ -360,11 +363,6 @@ under the License.
             <groupId>com.squareup.okio</groupId>
             <artifactId>okio</artifactId>
         </dependency>
-        <!-- https://mvnrepository.com/artifact/org.yaml/snakeyaml -->
-        <dependency>
-            <groupId>org.yaml</groupId>
-            <artifactId>snakeyaml</artifactId>
-        </dependency>
         <!-- https://mvnrepository.com/artifact/javax.validation/validation-api -->
         <dependency>
             <groupId>javax.validation</groupId>
@@ -374,6 +372,7 @@ under the License.
         <dependency>
             <groupId>org.slf4j</groupId>
             <artifactId>slf4j-api</artifactId>
+            <version>1.7.36</version>
         </dependency>
         <dependency>
             <groupId>org.apache.kafka</groupId>
@@ -414,17 +413,13 @@ under the License.
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-core_2.12</artifactId>
-            <exclusions>
-                <exclusion>
-                    <artifactId>netty-all</artifactId>
-                    <groupId>io.netty</groupId>
-                </exclusion>
-            </exclusions>
+            <scope>provided</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-launcher_2.12 -->
         <dependency>
             <groupId>org.apache.spark</groupId>
             <artifactId>spark-launcher_2.12</artifactId>
+            <scope>provided</scope>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.spark/spark-sql_2.12 -->
         <dependency>
@@ -605,6 +600,7 @@ under the License.
         <dependency>
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-metastore</artifactId>
+            <version>${hive.version}</version>
             <scope>provided</scope>
             <exclusions>
                 <exclusion>
@@ -617,6 +613,7 @@ under the License.
             <groupId>org.apache.hive</groupId>
             <artifactId>hive-exec</artifactId>
             <classifier>core</classifier>
+            <version>${hive.version}</version>
             <scope>provided</scope>
             <exclusions>
                 <exclusion>
@@ -767,6 +764,10 @@ under the License.
                 <exclusion>
                     <artifactId>netty-all</artifactId>
                     <groupId>io.netty</groupId>
+                </exclusion>
+                <exclusion>
+                    <groupId>log4j</groupId>
+                    <artifactId>log4j</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -1082,7 +1083,7 @@ under the License.
                             <overWriteReleases>false</overWriteReleases>
                             <overWriteSnapshots>false</overWriteSnapshots>
                             <overWriteIfNewer>true</overWriteIfNewer>
-                            <skip>${skip.plugin}</skip>
+                            <skip>false</skip>
                         </configuration>
                     </execution>
                 </executions>
