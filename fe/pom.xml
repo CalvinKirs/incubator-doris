@@ -161,9 +161,10 @@ under the License.
     </modules>
     <properties>
         <doris.home>${basedir}/../</doris.home>
-        <revision>1.2-SNAPSHOT</revision>
+        <revision>1.2-
+            SHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.2-SNAPSHOT</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.3-SNAPSHOT</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <sonar.organization>apache</sonar.organization>
