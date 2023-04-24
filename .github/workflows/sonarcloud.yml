@@ -19,6 +19,7 @@
 name: Code Quality Analysis
 on:
   push:
+  pull_request:
     branches:
       - master
 
