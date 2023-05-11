@@ -1,9 +1,9 @@
 ---
 {
-    "title": "FE Configuration",
-    "language": "en",
-    "toc_min_heading_level": 2,
-    "toc_max_heading_level": 4
+"title": "FE Configuration",
+"language": "en",
+"toc_min_heading_level": 2,
+"toc_max_heading_level": 4
 }
 ---
 
@@ -44,22 +44,22 @@ There are two ways to view the configuration items of FE:
 
 1. FE web page
 
-    Open the FE web page `http://fe_host:fe_http_port/variable` in the browser. You can see the currently effective FE configuration items in `Configure Info`.
+   Open the FE web page `http://fe_host:fe_http_port/variable` in the browser. You can see the currently effective FE configuration items in `Configure Info`.
 
 2. View by command
 
-    After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command:
+   After the FE is started, you can view the configuration items of the FE in the MySQL client with the following command:
 
-    `ADMIN SHOW FRONTEND CONFIG;`
+   `ADMIN SHOW FRONTEND CONFIG;`
 
-    The meanings of the columns in the results are as follows:
+   The meanings of the columns in the results are as follows:
 
-    * Key: the name of the configuration item.
-    * Value: The value of the current configuration item.
-    * Type: The configuration item value type, such as integer or string.
-    * IsMutable: whether it can be dynamically configured. If true, the configuration item can be dynamically configured at runtime. If false, it means that the configuration item can only be configured in `fe.conf` and takes effect after restarting FE.
-    * MasterOnly: Whether it is a unique configuration item of Master FE node. If it is true, it means that the configuration item is meaningful only at the Master FE node, and is meaningless to other types of FE nodes. If false, it means that the configuration item is meaningful in all types of FE nodes.
-    * Comment: The description of the configuration item.
+   * Key: the name of the configuration item.
+   * Value: The value of the current configuration item.
+   * Type: The configuration item value type, such as integer or string.
+   * IsMutable: whether it can be dynamically configured. If true, the configuration item can be dynamically configured at runtime. If false, it means that the configuration item can only be configured in `fe.conf` and takes effect after restarting FE.
+   * MasterOnly: Whether it is a unique configuration item of Master FE node. If it is true, it means that the configuration item is meaningful only at the Master FE node, and is meaningless to other types of FE nodes. If false, it means that the configuration item is meaningful in all types of FE nodes.
+   * Comment: The description of the configuration item.
 
 ## Set configuration items
 
@@ -67,60 +67,60 @@ There are two ways to configure FE configuration items:
 
 1. Static configuration
 
-    Add and set configuration items in the `conf/fe.conf` file. The configuration items in `fe.conf` will be read when the FE process starts. Configuration items not in `fe.conf` will use default values.
+   Add and set configuration items in the `conf/fe.conf` file. The configuration items in `fe.conf` will be read when the FE process starts. Configuration items not in `fe.conf` will use default values.
 
 2. Dynamic configuration via MySQL protocol
 
-    After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
+   After the FE starts, you can set the configuration items dynamically through the following commands. This command requires administrator privilege.
 
-    `ADMIN SET FRONTEND CONFIG (" fe_config_name "=" fe_config_value ");`
+   `ADMIN SET FRONTEND CONFIG (" fe_config_name "=" fe_config_value ");`
 
-    Not all configuration items support dynamic configuration. You can check whether the dynamic configuration is supported by the `IsMutable` column in the` ADMIN SHOW FRONTEND CONFIG; `command result.
+   Not all configuration items support dynamic configuration. You can check whether the dynamic configuration is supported by the `IsMutable` column in the` ADMIN SHOW FRONTEND CONFIG; `command result.
 
-    If the configuration item of `MasterOnly` is modified, the command will be directly forwarded to the Master FE and only the corresponding configuration item in the Master FE will be modified.
+   If the configuration item of `MasterOnly` is modified, the command will be directly forwarded to the Master FE and only the corresponding configuration item in the Master FE will be modified.
 
-    **Configuration items modified in this way will become invalid after the FE process restarts.**
+   **Configuration items modified in this way will become invalid after the FE process restarts.**
 
-    For more help on this command, you can view it through the `HELP ADMIN SET CONFIG;` command.
-    
+   For more help on this command, you can view it through the `HELP ADMIN SET CONFIG;` command.
+
 3. Dynamic configuration via HTTP protocol
 
-    For details, please refer to [Set Config Action](../http-actions/fe/set-config-action.md)
+   For details, please refer to [Set Config Action](../http-actions/fe/set-config-action.md)
 
-    This method can also persist the modified configuration items. The configuration items will be persisted in the `fe_custom.conf` file and will still take effect after FE is restarted.
+   This method can also persist the modified configuration items. The configuration items will be persisted in the `fe_custom.conf` file and will still take effect after FE is restarted.
 
 ## Examples
 
 1. Modify `async_pending_load_task_pool_size`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
+   Through `ADMIN SHOW FRONTEND CONFIG;` you can see that this configuration item cannot be dynamically configured (`IsMutable` is false). You need to add in `fe.conf`:
 
-    `async_pending_load_task_pool_size = 20`
+   `async_pending_load_task_pool_size = 20`
 
-    Then restart the FE process to take effect the configuration.
+   Then restart the FE process to take effect the configuration.
 
 2. Modify `dynamic_partition_enable`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). And it is the unique configuration of Master FE. Then first we can connect to any FE and execute the following command to modify the configuration:
+   Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). And it is the unique configuration of Master FE. Then first we can connect to any FE and execute the following command to modify the configuration:
 
     ```
     ADMIN SET FRONTEND CONFIG ("dynamic_partition_enable" = "true"); `
     ```
 
-    Afterwards, you can view the modified value with the following command:
+   Afterwards, you can view the modified value with the following command:
 
     ```
     set forward_to_master = true;
     ADMIN SHOW FRONTEND CONFIG;
     ```
 
-    After modification in the above manner, if the Master FE restarts or a Master election is performed, the configuration will be invalid. You can add the configuration item directly in `fe.conf` and restart the FE to make the configuration item permanent.
+   After modification in the above manner, if the Master FE restarts or a Master election is performed, the configuration will be invalid. You can add the configuration item directly in `fe.conf` and restart the FE to make the configuration item permanent.
 
 3. Modify `max_distribution_pruner_recursion_depth`
 
-    Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). It is not unique to Master FE.
+   Through `ADMIN SHOW FRONTEND CONFIG;` you can see that the configuration item can be dynamically configured (`IsMutable` is true). It is not unique to Master FE.
 
-    Similarly, we can modify the configuration by dynamically modifying the configuration command. Because this configuration is not unique to the Master FE, user need to connect to different FEs separately to modify the configuration dynamically, so that all FEs use the modified configuration values.
+   Similarly, we can modify the configuration by dynamically modifying the configuration command. Because this configuration is not unique to the Master FE, user need to connect to different FEs separately to modify the configuration dynamically, so that all FEs use the modified configuration values.
 
 ## Configurations
 
@@ -335,7 +335,7 @@ The multi cluster feature will be deprecated in version 0.12 ，set this config 
 
 Default：disable
 
-Set to true if you deploy Doris using thirdparty deploy manager 
+Set to true if you deploy Doris using thirdparty deploy manager
 
 Valid options are:
 
@@ -386,11 +386,11 @@ FE MySQL server port
 
 #### `frontend_address`
 
-Status: Deprecated, not recommended use. This parameter may be deleted later 
+Status: Deprecated, not recommended use. This parameter may be deleted later
 
-Type: string 
+Type: string
 
-Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname. 
+Description: Explicitly set the IP address of FE instead of using *InetAddress.getByName* to get the IP address. Usually in *InetAddress.getByName* When the expected results cannot be obtained. Only IP address is supported, not hostname.
 
 Default value: 0.0.0.0
 
@@ -633,7 +633,7 @@ HTTP Server V2 is implemented by SpringBoot. It uses an architecture that separa
 
 #### `http_api_extra_base_path`
 
-In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes. 
+In some deployment environments, user need to specify an additional base path as the unified prefix of the HTTP API. This parameter is used by the user to specify additional prefixes.
 After setting, user can get the parameter value through the `GET /api/basepath` interface. And the new UI will also try to get this base path first to assemble the URL. Only valid when `enable_http_server_v2` is true.
 
 The default is empty, that is, not set
@@ -689,8 +689,8 @@ IsMutable：false
 MasterOnly：false
 
 Current support for exporting traces:
-  zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
-  collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
+zipkin: Export traces directly to zipkin, which is used to enable the tracing feature quickly.
+collector: The collector can be used to receive and process traces and support export to a variety of third-party systems.
 If this configuration is enabled, you should also specify the enable_tracing=true and trace_export_url.
 
 #### `trace_export_url`
@@ -907,7 +907,7 @@ Default：false
 
 IsMutable：true
 
-If set to true, Planner will try to select replica of tablet on same host as this Frontend. 
+If set to true, Planner will try to select replica of tablet on same host as this Frontend.
 This may reduce network transmission in following case:
 
 -  N hosts with N Backends and N Frontends deployed.
@@ -1070,8 +1070,8 @@ MasterOnly：true
 
 if this is set to true
 
-- all pending load job will failed when call begin txn api 
-- all prepare load job will failed when call commit txn api 
+- all pending load job will failed when call begin txn api
+- all prepare load job will failed when call commit txn api
 - all committed load job will waiting to be published
 
 #### `commit_timeout_second`
@@ -1470,11 +1470,11 @@ IsMutable：true
 MasterOnly：true
 
 Maximal wait seconds for straggler node in load
-   eg.
-      there are 3 replicas A, B, C
-      load is already quorum finished(A,B) at t1 and C is not finished
-      if (current_time - t1) > 300s, then palo will treat C as a failure node
-      will call transaction manager to commit the transaction and tell transaction manager that C is failed
+eg.
+there are 3 replicas A, B, C
+load is already quorum finished(A,B) at t1 and C is not finished
+if (current_time - t1) > 300s, then palo will treat C as a failure node
+will call transaction manager to commit the transaction and tell transaction manager that C is failed
 
 This is also used when waiting for publish tasks
 
@@ -1488,9 +1488,9 @@ IsMutable：true
 
 MasterOnly：true
 
-labels of finished or cancelled load jobs will be removed after `label_keep_max_second` ， 
+labels of finished or cancelled load jobs will be removed after `label_keep_max_second` ，
 
-1. The removed labels can be reused.  
+1. The removed labels can be reused.
 2. Set a short time will lower the FE memory usage.  (Because all load jobs' info is kept in memory before being removed)
 
 In the case of high concurrent writes, if there is a large backlog of jobs and call frontend service failed, check the log. If the metadata write takes too long to lock, you can adjust this value to 12 hours, or 6 hours less
@@ -1649,8 +1649,8 @@ Default：{}
 Verbose modules. VERBOSE level is implemented by log4j DEBUG level.
 
 eg：
-   sys_log_verbose_modules = org.apache.doris.catalog
-   This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
+sys_log_verbose_modules = org.apache.doris.catalog
+This will only print debug log of files in package org.apache.doris.catalog and all its sub packages.
 
 #### `sys_log_roll_interval`
 
@@ -1939,15 +1939,15 @@ MasterOnly：true
 
 * Balance threshold of data size in BE.
 
-   The balance algorithm is:
+  The balance algorithm is:
 
-     1. Calculate the average used capacity(AUC) of the entire cluster. (total data size / total backends num)
+   1. Calculate the average used capacity(AUC) of the entire cluster. (total data size / total backends num)
 
-     2. The high water level is (AUC * (1 + clone_capacity_balance_threshold))
+   2. The high water level is (AUC * (1 + clone_capacity_balance_threshold))
 
-     3. The low water level is (AUC * (1 - clone_capacity_balance_threshold))
+   3. The low water level is (AUC * (1 - clone_capacity_balance_threshold))
 
-     4. The Clone checker will try to move replica from high water level BE to low water level BE.
+   4. The Clone checker will try to move replica from high water level BE to low water level BE.
 
 #### `disable_colocate_balance`
 
@@ -2071,7 +2071,7 @@ IsMutable：true
 
 MasterOnly：true
 
-the factor of delay time before deciding to repair tablet.  
+the factor of delay time before deciding to repair tablet.
 
 -  if priority is VERY_HIGH, repair it immediately.
 -  HIGH, delay tablet_repair_delay_factor_second * 1;
@@ -2217,8 +2217,8 @@ MasterOnly：true
 Maximal waiting time for creating a single replica.
 
 eg.
-   if you create a table with #m tablets and #n replicas for each tablet,
-   the create table request will run at most (m * n * tablet_create_timeout_second) before timeout.
+if you create a table with #m tablets and #n replicas for each tablet,
+the create table request will run at most (m * n * tablet_create_timeout_second) before timeout.
 
 #### `tablet_delete_timeout_second`
 
@@ -2300,7 +2300,7 @@ IsMutable：true
 
 MasterOnly：true
 
-Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it. 
+Whether to enable the ODBC table, it is not enabled by default. You need to manually configure it when you use it.
 
 This parameter can be set by: ADMIN SET FRONTEND CONFIG("key"="value")
 
@@ -2431,17 +2431,17 @@ Default：palo-dpp
 #### `dpp_default_config_str`
 
 Default：{
-               hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
-         }
+hadoop_configs : 'mapred.job.priority=NORMAL;mapred.job.map.capacity=50;mapred.job.reduce.capacity=50;mapred.hce.replace.streaming=false;abaci.long.stored.job=true;dce.shuffle.enable=false;dfs.client.authserver.force_stop=true;dfs.client.auth.method=0'
+}
 
 #### `dpp_config_str`
 
 Default：{
-               palo-dpp : {
-                     hadoop_palo_path : '/dir',
-                     hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
-                  }
-      }
+palo-dpp : {
+hadoop_palo_path : '/dir',
+hadoop_configs : 'fs.default.name=hdfs://host:port;mapred.job.tracker=host:port;hadoop.job.ugi=user,password'
+}
+}
 
 #### `yarn_config_dir`
 
@@ -2554,11 +2554,11 @@ IsMutable：true
 MasterOnly：true
 
 This threshold is to avoid piling up too many report task in FE, which may cause OOM exception.  In some large Doris cluster, eg: 100 Backends with ten million replicas, a tablet report may cost  several seconds after some modification of metadata(drop partition, etc..). And one Backend will report tablets info every 1 min, so unlimited receiving reports is unacceptable. we will optimize the processing speed of tablet report in future, but now, just discard the report if queue size exceeding limit.
-   Some online time cost:
-      1. disk report: 0-1 msta
-      2. sk report: 0-1 ms
-      3. tablet report
-      4. 10000 replicas: 200ms
+Some online time cost:
+1. disk report: 0-1 msta
+2. sk report: 0-1 ms
+3. tablet report
+4. 10000 replicas: 200ms
 
 #### `backup_job_default_timeout_ms`
 

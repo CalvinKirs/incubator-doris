@@ -400,6 +400,7 @@ import org.apache.doris.qe.SqlModeHelper;
         keywordMap.put("rollback", new Integer(SqlParserSymbols.KW_ROLLBACK));
         keywordMap.put("rollup", new Integer(SqlParserSymbols.KW_ROLLUP));
         keywordMap.put("routine", new Integer(SqlParserSymbols.KW_ROUTINE));
+        keywordMap.put("routine", new Integer(SqlParserSymbols.KW_MAPPING));
         keywordMap.put("row", new Integer(SqlParserSymbols.KW_ROW));
         keywordMap.put("rows", new Integer(SqlParserSymbols.KW_ROWS));
         keywordMap.put("s3", new Integer(SqlParserSymbols.KW_S3));

@@ -442,6 +442,7 @@ terminal String
     KW_LOCK,
     KW_LOW_PRIORITY,
     KW_MAP,
+    KW_MAPPING,
     KW_MATERIALIZED,
     KW_MAX,
     KW_MAX_VALUE,
@@ -648,7 +649,7 @@ terminal String COMMENTED_PLAN_HINTS;
 
 // Statement that the result of this parser.
 nonterminal List<StatementBase> stmts;
-nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt,
+nonterminal StatementBase stmt, show_stmt, show_param, help_stmt, load_stmt, create_multi_routine_load_stmt,
     create_routine_load_stmt, pause_routine_load_stmt, resume_routine_load_stmt, stop_routine_load_stmt,
     show_routine_load_stmt, show_routine_load_task_stmt, show_create_routine_load_stmt, show_create_load_stmt, show_create_reporitory_stmt,
     describe_stmt, alter_stmt,
@@ -1093,6 +1094,8 @@ stmt ::=
     {: RESULT = stmt; :}
     | create_routine_load_stmt : stmt
     {: RESULT = stmt; :}
+        | create_multi_routine_load_stmt : stmt
+        {: RESULT = stmt; :}
     | pause_routine_load_stmt : stmt
     {: RESULT = stmt; :}
     | resume_routine_load_stmt : stmt
@@ -2589,7 +2592,6 @@ create_routine_load_stmt ::=
          properties, type, customProperties, mergeType, comment);
     :}
     ;
-
 opt_load_property_list ::=
     {:
         RESULT = null;

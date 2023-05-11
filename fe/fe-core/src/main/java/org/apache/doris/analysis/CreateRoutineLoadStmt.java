@@ -106,7 +106,7 @@ public class CreateRoutineLoadStmt extends DdlStmt {
 
     // kafka type properties
     public static final String KAFKA_BROKER_LIST_PROPERTY = "kafka_broker_list";
-    public static final String KAFKA_TOPIC_PROPERTY = "kafka_topic";
+    public static final String /**/KAFKA_TOPIC_PROPERTY = "kafka_topic";
     // optional
     public static final String KAFKA_PARTITIONS_PROPERTY = "kafka_partitions";
     public static final String KAFKA_OFFSETS_PROPERTY = "kafka_offsets";
@@ -184,6 +184,17 @@ public class CreateRoutineLoadStmt extends DdlStmt {
     public static final Predicate<Long> EXEC_MEM_LIMIT_PRED = (v) -> v >= 0L;
     public static final Predicate<Long> SEND_BATCH_PARALLELISM_PRED = (v) -> v > 0L;
 
+    /**
+     * todo @CalvinKirs 根据类型来判断
+     * @param labelName
+     * @param tableName
+     * @param loadPropertyList
+     * @param jobProperties
+     * @param typeName
+     * @param dataSourceProperties
+     * @param mergeType
+     * @param comment
+     */
     public CreateRoutineLoadStmt(LabelName labelName, String tableName, List<ParseNode> loadPropertyList,
                                  Map<String, String> jobProperties, String typeName,
                                  Map<String, String> dataSourceProperties, LoadTask.MergeType mergeType,
