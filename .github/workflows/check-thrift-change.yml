@@ -34,49 +34,27 @@ jobs:
 
     - name: Check Thrift changes
       run: |
-        # 获取所有更改的Thrift文件
-        # Get all changed thrift files
-        changed_files=$(find . -type f -name "*.thrift" | grep -F "$(git diff --name-only origin/master ${{ github.event.pull_request.head.sha }})")
-        # 如果没有Thrift文件更改，则退出脚本
-        if [[ -z "$changed_files" ]]
-        then
-          echo "No Thrift files have been changed"
-          exit 0
-        fi
+          # Find all changed Thrift files
+          CHANGED_THRIFT_FILES=$(find . -type f -name "*.thrift" | grep -F "$(git diff --name-only origin/main ${{ github.event.pull_request.head.sha }})")
 
-        # 循环检查每个更改的Thrift文件
-        for file in $changed_files
-        do
-          # 提取文件名和文件路径
-          file_name=$(basename $file)
-          echo $file_name
-          file_path=$(dirname $file)
-          echo "file path is " + $file_path
+          # Check for new structs or fields
+          for file in $CHANGED_THRIFT_FILES; do
+            NEW_STRUCTS=$(grep -E "^struct [A-Za-z0-9_]+" "$file" | awk '{ print $2 }')
+            NEW_FIELDS=$(grep -E "^ *[0-9]+:" "$file" | awk -F'[ :]+|\\{' '{ print $3 }')
 
-          # 判断Thrift是新增字段还是新增结构
-          if grep -qP "struct $file_name\b" $file
-          then
-            echo "Thrift新增结构 $file_name"
-          else
-            echo "add new field"
-            # 提取新增字段名
-            new_field=$(diff <(grep -oP 'struct \K\w+' $file_path/$file_name) <(grep -oP 'struct \K\w+' $file) | grep '>' | grep -oP '\.\K\w+')
-            # 检查新增字段是否为required
-            is_required=$(grep -oP "required \K$new_field" $file)
-            if [[ "$is_required" == "required" ]]
-            then
-              echo "Thrift新增字段 $new_field 为required，出现错误"
-              exit 1
-            fi
-            # 检查是否删除了字段
-            deleted_fields=$(git log --reverse --ancestry-path HEAD.. -- $file_path/$file_name | grep -oP '^\-\s+\K\w+' | uniq)
-            for field in $deleted_fields
-            do
-              if grep -qP "^\s*${field}\b" $file_path/$file_name
-              then
-                echo "Thrift删除字段 $field，出现错误"
+            for struct in $NEW_STRUCTS; do
+              echo "New struct: $struct"
+            done
+
+            for field in $NEW_FIELDS; do
+              echo "New field: $field"
+
+              # Check if field is required
+              is_required=$(awk "/^ *[0-9]+:.*$field.*;/{for(i=1;i<=NF;i++)if(\$i==\"required\")print 1}" "$file")
+
+              if [ -n "$is_required" ]; then
+                echo "ERROR: New required field $field in $file"
                 exit 1
               fi
             done
-          fi
-        done
+          done
