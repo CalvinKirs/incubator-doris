@@ -86,6 +86,7 @@ struct TStorageResource {
     2: optional string name
     3: optional i64 version // alter version
     4: optional TS3StorageParam s3_storage_param
+    5: required test // todo for test
     // more storage resource type
 }
 

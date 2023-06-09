@@ -20,7 +20,7 @@ name: Check Thrift Changes
 on:
   pull_request:
     branches:
-      - main
+      - master
 
 jobs:
   check-thrift-changes:
