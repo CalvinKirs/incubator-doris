@@ -45,6 +45,8 @@ jobs:
           # 提取文件名和文件路径
           file_name=$(basename $file)
           file_path=$(dirname $file)
+          echo "Checking Thrift file $file_name"
+          echo "Checking Thrift file $file_path"
           
           # 判断Thrift是新增字段还是新增结构
           if grep -qP "struct $file_name\b" $file
