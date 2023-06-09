@@ -35,9 +35,6 @@ jobs:
     - name: Check Thrift changes
       run: |
         # 获取所有更改的Thrift文件
-        echo ${GITHUB_REF#refs/heads/}
-        errors=""
-
         # Get all changed thrift files
         changed_files=$(git diff --name-only HEAD -- | grep "\.thrift$")
         # 如果没有Thrift文件更改，则退出脚本
@@ -52,6 +49,7 @@ jobs:
         do
           # 提取文件名和文件路径
           file_name=$(basename $file)
+          echo $file_name
           file_path=$(dirname $file)
 
           # 判断Thrift是新增字段还是新增结构
