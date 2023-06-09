@@ -34,7 +34,6 @@ namespace java org.apache.doris.thrift
 //
 // NOTE: We use one byte in doris::Status, so the max value is 255.
 enum TStatusCode {
-    OK                              = 0,
     CANCELLED                       = 1,
     ANALYSIS_ERROR                  = 2,
     NOT_IMPLEMENTED_ERROR           = 3,
@@ -96,5 +95,6 @@ enum TStatusCode {
 struct TStatus {
   1: required TStatusCode status_code
   2: optional list<string> error_msgs
+  3: required TStatusCode status
 }
 
