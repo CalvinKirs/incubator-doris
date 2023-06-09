@@ -34,7 +34,7 @@ jobs:
       run: |
         # 获取所有更改的Thrift文件
         echo ${GITHUB_REF#refs/heads/}
-        changed_files = $(git diff origin/master ${{ github.event.pull_request.head.sha }} > HEAD | grep ".thrift$")
+        changed_files=$(git diff --name-only HEAD^ HEAD | grep "\.thrift$")
         # 如果没有Thrift文件更改，则退出脚本
         if [[ -z "$changed_files" ]]
         then
