@@ -33,7 +33,7 @@ jobs:
     - name: Check Thrift changes
       run: |
         # 获取所有更改的Thrift文件
-        changed_files=$(git diff --name-only origin/<target-branch> HEAD | grep ".thrift$")
+        changed_files=$(git diff --name-only origin/<master> HEAD | grep ".thrift$")
         # 如果没有Thrift文件更改，则退出脚本
         if [[ -z "$changed_files" ]]
         then
