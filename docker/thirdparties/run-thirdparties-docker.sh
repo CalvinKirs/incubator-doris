@@ -37,7 +37,7 @@ Usage: $0 <options>
      --stop             stop the specified components
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive,iceberg,hudi,kafka
   "
     exit 1
 }
@@ -60,7 +60,7 @@ STOP=0
 
 if [[ "$#" == 1 ]]; then
     # default
-    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi"
+    COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,kafka"
 else
     while true; do
         case "$1" in
@@ -92,7 +92,7 @@ else
     done
     if [[ "${COMPONENTS}"x == ""x ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
-            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi"
+            COMPONENTS="mysql,pg,oracle,sqlserver,clickhouse,hive,iceberg,hudi,kafka"
         fi
     fi
 fi
