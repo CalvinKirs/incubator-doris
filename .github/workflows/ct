@@ -2,8 +2,6 @@ name: CI
 
 on:
   pull_request:
-    branches:
-      - test
 
 jobs:
   build:
@@ -13,10 +11,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      # Get main branch name from GITHUB_REF
-      - name: Get main branch name
-        run: echo "Main branch: ${GITHUB_REF#refs/heads/}"
+      # Get changed files
+      - name: Get changed files
+        run: |
+          git fetch origin main
+          git diff --name-only origin/main ${{ github.event.pull_request.head.sha }} > changed_files.txt
+        id: get_changed_files
 
-        # Store main branch name in an environment variable
-        env:
-          MAIN_BRANCH: ${{ GITHUB_REF#refs/heads/ }}
+      # Use changed files in subsequent steps
+      - name: Build and test
+        run: |
+          echo "Building and testing on branch ${{ github.event.pull_request.head.ref }}"
+          cat ${{ steps.get_changed_files.outputs.stdout }}
