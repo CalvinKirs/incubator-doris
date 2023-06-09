@@ -39,6 +39,7 @@ jobs:
           
             # 检查每个文件中的变更
             while read -r line; do
+              echo "Checking change: $line"
               # 判断变更类型
               if echo "$line" | grep -q '^\+.*\bfield\b'; then
                 # 新增字段
