@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  pull_request:
+    branches:
+      - test
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      # Get main branch name from GITHUB_REF
+      - name: Get main branch name
+        run: echo "Main branch: ${GITHUB_REF#refs/heads/}"
+
+        # Store main branch name in an environment variable
+        env:
+          MAIN_BRANCH: ${{ GITHUB_REF#refs/heads/ }}
