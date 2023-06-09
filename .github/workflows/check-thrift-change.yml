@@ -51,12 +51,14 @@ jobs:
           file_name=$(basename $file)
           echo $file_name
           file_path=$(dirname $file)
+          echo "file path is " + $file_path
 
           # 判断Thrift是新增字段还是新增结构
           if grep -qP "struct $file_name\b" $file
           then
             echo "Thrift新增结构 $file_name"
           else
+            echo "add new field"
             # 提取新增字段名
             new_field=$(diff <(grep -oP 'struct \K\w+' $file_path/$file_name) <(grep -oP 'struct \K\w+' $file) | grep '>' | grep -oP '\.\K\w+')
             # 检查新增字段是否为required
