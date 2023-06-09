@@ -36,41 +36,44 @@ jobs:
       run: |
         # 获取所有更改的Thrift文件
         echo ${GITHUB_REF#refs/heads/}
-        changed_files=$(find . -type f -name "*.thrift" | grep -F "$(git diff --name-only origin/master ${{ github.event.pull_request.head.sha }})")
-        # 如果没有Thrift文件更改，则退出脚本
-        if [[ -z "$changed_files" ]]
-        then
-          echo "No Thrift files have been changed"
-          exit 0
-        fi
+            errors=""
 
-        # 循环检查每个更改的Thrift文件
-        for file in $changed_files
-        do
-          # 提取文件名和文件路径
-          file_name=$(basename $file)
-          file_path=$(dirname $file)
+        # Get all changed thrift files
+        thrift_files=$(git diff --name-only HEAD~1 HEAD | grep ".thrift$")
 
-          # 判断Thrift是新增字段还是新增结构
-          if grep -qP "struct $file_name\b" $file
-          then
-            echo "Thrift新增结构 $file_name"
-          else
-            # get new field
-            new_field=$(diff <(grep -oP 'struct \K\w+' $file_path/$file_name) <(grep -oP 'struct \K\w+' $file) | grep '>' | grep -oP '\.\K\w+')
-            # check new field required
-            is_required=$(grep -oP "required \K$new_field" $file)
-            if [[ "$is_required" == "required" ]]
-            then
-              echo "Thrift new field $new_field is required"
-              exit 1
+        # For each changed thrift file
+        for file in $thrift_files; do
+          # Get added structures and fields
+          added=$(git show HEAD:$file | grep "^+" | grep -E "struct|field")
+
+          # For each added structure or field
+          while read line; do
+            # Check if it is required
+            required=$(echo "$line" | grep -E "required\s+(bool|byte|i16|i32|i64|double|string|binary)\s+")
+
+            # If it is required, add an error message
+            if [ -n "$required" ]; then
+              errors="$errors\n$file: $line"
             fi
-            # 检查是否删除了字段
-            deleted_fields=$(diff <(grep -oP 'struct \K\w+' $file_path/$file_name) <(grep -oP 'struct \K\w+' $file) | grep '<' | grep -oP '\.\K\w+')
-            if [[ -n "$deleted_fields" ]]
-            then
-              echo "Thrift shouldn't $deleted_field"
-              exit 1
+          done <<< "$added"
+
+          # Get diff between current and previous version of file
+          diff=$(git diff HEAD~1 HEAD -- $file | grep -E "^\+|^\-")
+
+          # For each added or deleted structure or field
+          while read line; do
+            # Check if it is added and required
+            if echo "$line" | grep -E "^\+.*(struct|field)" > /dev/null; then
+              required=$(echo "$line" | grep -E "required\s+(bool|byte|i16|i32|i64|double|string|binary)\s+")
+              if [ -n "$required" ]; then
+                errors="$errors\n$file: $line"
+              fi
             fi
-          fi
+          done <<< "$diff"
         done
+
+        # If there are errors, output them and set exit code to 1
+        if [ -n "$errors" ]; then
+          echo -e "Errors detected:$errors"
+          exit 1
+        fi
