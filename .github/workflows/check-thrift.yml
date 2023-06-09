@@ -33,15 +33,14 @@ jobs:
         run: |
           for file in $(git diff --name-only HEAD^ HEAD | grep '\.thrift$'); do
             echo "Checking changes in $file"
-
+          
+            # 保存原始文件
+            cp "$file" "$file.orig"
+          
             # 检查每个文件中的变更
             while read -r line; do
               # 判断变更类型
-              if echo "$line" | grep -q '^\+.*\bstruct\b'; then
-                # 新增结构
-                struct=$(echo "$line" | sed 's/^\+//')
-                echo "New struct: $struct"
-              elif echo "$line" | grep -q '^\+.*\bfield\b'; then
+              if echo "$line" | grep -q '^\+.*\bfield\b'; then
                 # 新增字段
                 field=$(echo "$line" | sed 's/^\+//')
                 echo "New field: $field"
@@ -50,10 +49,37 @@ jobs:
                   echo "Error: Required field added: $field"
                   exit 1
                 fi
+                # 获取字段名称和类型
+                field_name=$(echo "$field" | awk '{print $2}')
+                field_type=$(echo "$field" | awk '{print $3}')
+                # 检查是否已删除该字段
+                if grep -q " $field_name " "$file.orig" && ! grep -q " $field_name " "$file"; then
+                  # 删除了字段
+                  echo "Error: Field deleted: $field_name"
+                  exit 1
+                fi
+                # 检查是否已将字段类型更改为 required
+                if grep -q " $field_name " "$file.orig" && grep -q " $field_name " "$file" && grep -q " $field_type " "$file" && ! grep -q " $field_type " "$file.orig" && echo "$field" | grep -q '\brequired\b'; then
+                  # 将字段类型更改为 required
+                  echo "Error: Field changed to required: $field_name"
+                  exit 1
+                fi
+              elif echo "$line" | grep -q '^\-.*\bfield\b'; then
+                # 删除字段
+                field=$(echo "$line" | sed 's/^\-//')
+                echo "Deleted field: $field"
+                # 获取字段名称
+                field_name=$(echo "$field" | awk '{print $2}')
+                # 检查是否已新增该字段
+                if grep -q " $field_name " "$file"; then
+                  # 新增了字段
+                  echo "Error: Field added: $field_name"
+                  exit 1
+                fi
               elif echo "$line" | grep -q '^\-.*\benum\b'; then
                 # 删除枚举
                 echo "Error: Enum deleted: $line"
                 exit 1
               fi
-            done < <(git diff HEAD^ HEAD "$file" | grep '^\+' | sed 's/^\+//')
+            done < <(git diff HEAD^ HEAD "$file" | grep '^[+-]' | sed 's/^[+-]//')
           done
