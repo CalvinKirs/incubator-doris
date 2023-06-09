@@ -36,13 +36,14 @@ jobs:
       run: |
         # 获取所有更改的Thrift文件
         echo ${GITHUB_REF#refs/heads/}
-            errors=""
+        errors=""
 
         # Get all changed thrift files
         thrift_files=$(git diff --name-only HEAD~1 HEAD | grep ".thrift$")
 
         # For each changed thrift file
         for file in $thrift_files; do
+          echo "start checl"
           # Get added structures and fields
           added=$(git show HEAD:$file | grep "^+" | grep -E "struct|field")
 
