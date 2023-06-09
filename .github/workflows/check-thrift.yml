@@ -57,6 +57,7 @@ jobs:
           # 提取新增字段名
           new_field=$(diff <(grep -oP 'struct \K\w+' $file_path/$file_name) <(grep -oP 'struct \K\w+' $file) | grep '>' | grep -oP '\.\K\w+')
           # 检查新增字段是否为required
+          echo "Checking if new field $new_field is required"
           is_required=$(grep -oP "required \K$new_field" $file)
           if [[ "$is_required" == "required" ]]
           then
