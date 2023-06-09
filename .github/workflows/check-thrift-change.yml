@@ -27,34 +27,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-      with:
+     - name: Checkout code
+       uses: actions/checkout@v2
+       with:
           fetch-depth: 0  
+     - name: Find Thrift files
+       run: |
+          files=$(git diff --name-only HEAD^ HEAD | grep "\.thrift$")
+          echo "::set-output name=files::$files"
 
-    - name: Check Thrift changes
-      run: |
-          # Find all changed Thrift files
-          CHANGED_THRIFT_FILES=$(find . -type f -name "*.thrift" | grep -F "$(git diff --name-only origin/main ${{ github.event.pull_request.head.sha }})")
+     - name: Check Thrift files
+       run: |
+          for file in ${{ steps.find.outputs.files }}; do
+            if grep -q "^enum.*{$" $file && grep -q "^enum.*{-" $file; then
+              echo "Error: $file contains deleted enum fields"
+              exit 1
+            fi
 
-          # Check for new structs or fields
-          for file in $CHANGED_THRIFT_FILES; do
-            NEW_STRUCTS=$(grep -E "^struct [A-Za-z0-9_]+" "$file" | awk '{ print $2 }')
-            NEW_FIELDS=$(grep -E "^ *[0-9]+:" "$file" | awk -F'[ :]+|\\{' '{ print $3 }')
+            if ! grep -q "^enum" $file; then
+              echo "Error: $file contains non-enum structures"
+              exit 1
+            fi
 
-            for struct in $NEW_STRUCTS; do
-              echo "New struct: $struct"
-            done
-
-            for field in $NEW_FIELDS; do
-              echo "New field: $field"
-
-              # Check if field is required
-              is_required=$(awk "/^ *[0-9]+:.*$field.*;/{for(i=1;i<=NF;i++)if(\$i==\"required\")print 1}" "$file")
-
-              if [ -n "$is_required" ]; then
-                echo "ERROR: New required field $field in $file"
-                exit 1
-              fi
-            done
+            if grep -q "required" $file; then
+              echo "Error: $file contains required fields"
+              exit 1
+            fi
           done
