@@ -14,7 +14,7 @@ jobs:
       # Get changed files
       - name: Get changed files
         run: |
-          git fetch origin main
+          git fetch origin master
           git diff --name-only origin/master ${{ github.event.pull_request.head.sha }} > changed_files.txt
         id: get_changed_files
 
