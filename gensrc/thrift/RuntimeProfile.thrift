@@ -35,6 +35,7 @@ struct TRuntimeProfileNode {
   // TODO: should we make metadata a serializable struct?  We only use it to
   // store the node id right now so this is sufficient.
   4: required i64 metadata
+  5: required i64 metadata.node_id
 
   // indicates whether the child will be printed with extra indentation;
   // corresponds to indent param of RuntimeProfile::AddChild()
