@@ -77,6 +77,8 @@ public class FileSystemManager {
     private static final String AFS_SCHEME = "afs";
     private static final String GFS_SCHEME = "gfs";
 
+    private static final String GCS_SCHEME = "gs";
+
     private static final String USER_NAME_KEY = "username";
     private static final String PASSWORD_KEY = "password";
     private static final String AUTHENTICATION_SIMPLE = "simple";
@@ -201,7 +203,7 @@ public class FileSystemManager {
         String scheme = pathUri.getUri().getScheme();
         if (Strings.isNullOrEmpty(scheme)) {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
-                "invalid path. scheme is null");
+                    "invalid path. scheme is null");
         }
         BrokerFileSystem brokerFileSystem = null;
         if (scheme.equals(HDFS_SCHEME)) {
@@ -224,19 +226,22 @@ public class FileSystemManager {
             brokerFileSystem = getJuiceFileSystem(path, properties);
         } else if (scheme.equals(GFS_SCHEME)) {
             brokerFileSystem = getGooseFSFileSystem(path, properties);
+        } else if (scheme.equals(GCS_SCHEME)) {
+            brokerFileSystem = getGCSFileSystem(path, properties);
         } else {
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
-                "invalid path. scheme is not supported");
+                    "invalid path. scheme is not supported");
         }
         return brokerFileSystem;
     }
 
     /**
      * visible for test
-     *
+     * <p>
      * file system handle is cached, the identity is host + username_password
      * it will have safety problem if only hostname is used because one user may specify username and password
      * and then access hdfs, another user may not specify username and password but could also access data
+     *
      * @param path
      * @param properties
      * @return
@@ -252,7 +257,7 @@ public class FileSystemManager {
                 logger.info("no schema and authority in path. use fs.defaultFs");
             } else {
                 logger.warn("invalid hdfs path. authority is null,path:" + path);
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                         "invalid hdfs path. authority is null");
             }
         }
@@ -260,12 +265,12 @@ public class FileSystemManager {
         String password = properties.getOrDefault(PASSWORD_KEY, "");
         String dfsNameServices = properties.getOrDefault(DFS_NAMESERVICES_KEY, "");
         String authentication = properties.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
-            AUTHENTICATION_SIMPLE);
+                AUTHENTICATION_SIMPLE);
         if (Strings.isNullOrEmpty(authentication) || (!authentication.equals(AUTHENTICATION_SIMPLE)
-            && !authentication.equals(AUTHENTICATION_KERBEROS))) {
+                && !authentication.equals(AUTHENTICATION_KERBEROS))) {
             logger.warn("invalid authentication:" + authentication);
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                "invalid authentication:" + authentication);
+                    "invalid authentication:" + authentication);
         }
         String hdfsUgi = username + "," + password;
         FileSystemIdentity fileSystemIdentity = null;
@@ -279,11 +284,11 @@ public class FileSystemManager {
             } else if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
                 kerberosContent = properties.get(KERBEROS_KEYTAB_CONTENT);
             } else {
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                         "keytab is required for kerberos authentication");
             }
             if (!properties.containsKey(KERBEROS_PRINCIPAL)) {
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                         "principal is required for kerberos authentication");
             } else {
                 kerberosContent = kerberosContent + properties.get(KERBEROS_PRINCIPAL);
@@ -294,7 +299,7 @@ public class FileSystemManager {
                 String kerberosUgi = new String(result);
                 fileSystemIdentity = new FileSystemIdentity(host, kerberosUgi);
             } catch (NoSuchAlgorithmException e) {
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                         e.getMessage());
             }
         }
@@ -314,7 +319,7 @@ public class FileSystemManager {
                 // TODO get this param from properties
                 // conf.set("dfs.replication", "2");
                 String tmpFilePath = null;
-                if (authentication.equals(AUTHENTICATION_KERBEROS)){
+                if (authentication.equals(AUTHENTICATION_KERBEROS)) {
                     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
                             AUTHENTICATION_KERBEROS);
 
@@ -332,7 +337,7 @@ public class FileSystemManager {
                         Random random = new Random(currentTime);
                         int randNumber = random.nextInt(10000);
                         // different kerberos account has different file
-                        tmpFilePath ="/tmp/." +
+                        tmpFilePath = "/tmp/." +
                                 principal.replace('/', '_') +
                                 "_" + Long.toString(currentTime) +
                                 "_" + Integer.toString(randNumber) +
@@ -345,7 +350,7 @@ public class FileSystemManager {
                         fileOutputStream.close();
                         keytab = tmpFilePath;
                     } else {
-                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                                 "keytab is required for kerberos authentication");
                     }
                     UserGroupInformation.setConfiguration(conf);
@@ -353,11 +358,11 @@ public class FileSystemManager {
                     if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
                         try {
                             File file = new File(tmpFilePath);
-                            if(!file.delete()){
-                                logger.warn("delete tmp file:" +  tmpFilePath + " failed");
+                            if (!file.delete()) {
+                                logger.warn("delete tmp file:" + tmpFilePath + " failed");
                             }
                         } catch (Exception e) {
-                            throw new  BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
+                            throw new BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
                                     e.getMessage());
                         }
                     }
@@ -366,15 +371,15 @@ public class FileSystemManager {
                     // ha hdfs arguments
                     final String dfsHaNameNodesKey = DFS_HA_NAMENODES_PREFIX + dfsNameServices;
                     if (!properties.containsKey(dfsHaNameNodesKey)) {
-                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                                 "load request missed necessary arguments for ha mode");
                     }
-                    String dfsHaNameNodes =  properties.get(dfsHaNameNodesKey);
+                    String dfsHaNameNodes = properties.get(dfsHaNameNodesKey);
                     conf.set(DFS_NAMESERVICES_KEY, dfsNameServices);
                     conf.set(dfsHaNameNodesKey, dfsHaNameNodes);
                     String[] nameNodes = dfsHaNameNodes.split(",");
                     if (nameNodes == null) {
-                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                                 "invalid " + dfsHaNameNodesKey + " configuration");
                     } else {
                         for (String nameNode : nameNodes) {
@@ -382,7 +387,7 @@ public class FileSystemManager {
                             String nameNodeRpcAddress =
                                     DFS_HA_NAMENODE_RPC_ADDRESS_PREFIX + dfsNameServices + "." + nameNode;
                             if (!properties.containsKey(nameNodeRpcAddress)) {
-                                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                                         "missed " + nameNodeRpcAddress + " configuration");
                             } else {
                                 conf.set(nameNodeRpcAddress, properties.get(nameNodeRpcAddress));
@@ -404,14 +409,14 @@ public class FileSystemManager {
                     }
                     if (properties.containsKey(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN)) {
                         conf.set(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN,
-                            properties.get(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN));
+                                properties.get(DFS_HA_NAMENODE_KERBEROS_PRINCIPAL_PATTERN));
                     }
                 }
 
                 conf.set(FS_HDFS_IMPL_DISABLE_CACHE, "true");
                 FileSystem dfsFileSystem = null;
                 if (authentication.equals(AUTHENTICATION_SIMPLE) &&
-                    properties.containsKey(USER_NAME_KEY) && !Strings.isNullOrEmpty(username)) {
+                        properties.containsKey(USER_NAME_KEY) && !Strings.isNullOrEmpty(username)) {
                     // Use the specified 'username' as the login name
                     ugi = UserGroupInformation.createRemoteUser(username);
                     // make sure hadoop client know what auth method would be used now,
@@ -435,8 +440,9 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     *
+     * <p>
      * file system handle is cached, the identity is host + accessKey_secretKey
+     *
      * @param path
      * @param properties
      * @return
@@ -475,9 +481,45 @@ public class FileSystemManager {
         }
     }
 
+    public BrokerFileSystem getGCSFileSystem(String path, Map<String, String> properties) {
+        WildcardURI pathUri = new WildcardURI(path);
+        String projectId = properties.get("fs.gs.project.id");
+        if (Strings.isNullOrEmpty(projectId)) {
+            throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                    "missed fs.gs.project.id configuration");
+        }
+        String ugi = "";
+        FileSystemIdentity fileSystemIdentity = new FileSystemIdentity(projectId, ugi);
+        BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
+        fileSystem.getLock().lock();
+        try {
+            if (fileSystem.getDFSFileSystem() == null) {
+                logger.info("create file system for new path " + path);
+                // create a new filesystem
+                Configuration conf = new Configuration();
+                properties.forEach((k, v) -> {
+                    if (k.startsWith("fs.gs") && !Strings.isNullOrEmpty(v)) {
+                        conf.set(k, v);
+                    }
+                });
+                if (properties.containsKey("fs.AbstractFileSystem.gs.impl")) {
+                    conf.set("fs.AbstractFileSystem.gs.impl", properties.get("fs.AbstractFileSystem.gs.impl"));
+                }
+                FileSystem gcsFileSystem = FileSystem.get(pathUri.getUri(), conf);
+                fileSystem.setFileSystem(gcsFileSystem);
+            }
+            return fileSystem;
+        } catch (Exception e) {
+            logger.error("errors while connect to " + path, e);
+            throw new BrokerException(TBrokerOperationStatusCode.NOT_AUTHORIZED, e);
+        } finally {
+            fileSystem.getLock().unlock();
+        }
+    }
 
     /**
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
+     *
      * @param path
      * @param properties
      * @return
@@ -562,8 +604,9 @@ public class FileSystemManager {
         }
     }
 
-   /**
+    /**
      * file system handle is cached, the identity is endpoint + bucket + accessKey_secretKey
+     *
      * @param path
      * @param properties
      * @return
@@ -604,8 +647,9 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     *
+     * <p>
      * file system handle is cached, the identity is for all chdfs.
+     *
      * @param path
      * @param properties
      * @return
@@ -650,7 +694,7 @@ public class FileSystemManager {
                 String kerberosUgi = new String(result);
                 fileSystemIdentity = new FileSystemIdentity(host, kerberosUgi);
             } catch (NoSuchAlgorithmException e) {
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                         e.getMessage());
             }
         }
@@ -666,7 +710,7 @@ public class FileSystemManager {
             if (fileSystem.getDFSFileSystem() == null) {
                 logger.info("create file system for new path " + path);
                 String tmpFilePath = null;
-                if (authentication.equals(AUTHENTICATION_KERBEROS)){
+                if (authentication.equals(AUTHENTICATION_KERBEROS)) {
                     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
                             AUTHENTICATION_KERBEROS);
 
@@ -689,7 +733,7 @@ public class FileSystemManager {
                         fileOutputStream.close();
                         keytab = tmpFilePath;
                     } else {
-                        throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
                                 "keytab is required for kerberos authentication");
                     }
                     UserGroupInformation.setConfiguration(conf);
@@ -697,11 +741,11 @@ public class FileSystemManager {
                     if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
                         try {
                             File file = new File(tmpFilePath);
-                            if(!file.delete()){
-                                logger.warn("delete tmp file:" +  tmpFilePath + " failed");
+                            if (!file.delete()) {
+                                logger.warn("delete tmp file:" + tmpFilePath + " failed");
                             }
                         } catch (Exception e) {
-                            throw new  BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
+                            throw new BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
                                     e.getMessage());
                         }
                     }
@@ -812,8 +856,9 @@ public class FileSystemManager {
 
     /**
      * visible for test
-     *
+     * <p>
      * file system handle is cached, the identity is for all juicefs.
+     *
      * @param path
      * @param properties
      * @return
@@ -829,17 +874,17 @@ public class FileSystemManager {
                 logger.info("no schema and authority in path. use fs.defaultFs");
             } else {
                 logger.warn("invalid jfs path. authority is null,path:" + path);
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                    "invalid jfs path. authority is null");
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        "invalid jfs path. authority is null");
             }
         }
         String authentication = properties.getOrDefault(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
-            AUTHENTICATION_SIMPLE);
+                AUTHENTICATION_SIMPLE);
         if (Strings.isNullOrEmpty(authentication) || (!authentication.equals(AUTHENTICATION_SIMPLE)
-            && !authentication.equals(AUTHENTICATION_KERBEROS))) {
+                && !authentication.equals(AUTHENTICATION_KERBEROS))) {
             logger.warn("invalid authentication:" + authentication);
             throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                "invalid authentication:" + authentication);
+                    "invalid authentication:" + authentication);
         }
 
         FileSystemIdentity fileSystemIdentity = null;
@@ -854,11 +899,11 @@ public class FileSystemManager {
                 kerberosContent = properties.get(KERBEROS_KEYTAB_CONTENT);
             } else {
                 throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                    "keytab is required for kerberos authentication");
+                        "keytab is required for kerberos authentication");
             }
             if (!properties.containsKey(KERBEROS_PRINCIPAL)) {
                 throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                    "principal is required for kerberos authentication");
+                        "principal is required for kerberos authentication");
             } else {
                 kerberosContent = kerberosContent + properties.get(KERBEROS_PRINCIPAL);
             }
@@ -868,8 +913,8 @@ public class FileSystemManager {
                 String kerberosUgi = new String(result);
                 fileSystemIdentity = new FileSystemIdentity(host, kerberosUgi);
             } catch (NoSuchAlgorithmException e) {
-                throw  new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                    e.getMessage());
+                throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
+                        e.getMessage());
             }
         }
         BrokerFileSystem fileSystem = updateCachedFileSystem(fileSystemIdentity, properties);
@@ -884,9 +929,9 @@ public class FileSystemManager {
             if (fileSystem.getDFSFileSystem() == null) {
                 logger.info("create file system for new path " + path);
                 String tmpFilePath = null;
-                if (authentication.equals(AUTHENTICATION_KERBEROS)){
+                if (authentication.equals(AUTHENTICATION_KERBEROS)) {
                     conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION,
-                        AUTHENTICATION_KERBEROS);
+                            AUTHENTICATION_KERBEROS);
 
                     String principal = preparePrincipal(properties.get(KERBEROS_PRINCIPAL));
                     String keytab = "";
@@ -908,19 +953,19 @@ public class FileSystemManager {
                         keytab = tmpFilePath;
                     } else {
                         throw new BrokerException(TBrokerOperationStatusCode.INVALID_ARGUMENT,
-                            "keytab is required for kerberos authentication");
+                                "keytab is required for kerberos authentication");
                     }
                     UserGroupInformation.setConfiguration(conf);
                     UserGroupInformation.loginUserFromKeytab(principal, keytab);
                     if (properties.containsKey(KERBEROS_KEYTAB_CONTENT)) {
                         try {
                             File file = new File(tmpFilePath);
-                            if(!file.delete()){
-                                logger.warn("delete tmp file:" +  tmpFilePath + " failed");
+                            if (!file.delete()) {
+                                logger.warn("delete tmp file:" + tmpFilePath + " failed");
                             }
                         } catch (Exception e) {
-                            throw new  BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
-                                e.getMessage());
+                            throw new BrokerException(TBrokerOperationStatusCode.FILE_NOT_FOUND,
+                                    e.getMessage());
                         }
                     }
                 }
@@ -1284,10 +1329,10 @@ public class FileSystemManager {
     }
 
     /**
-     *   In view of the different expiration mechanisms of different authentication modes，
-     *   there are two ways to determine whether BrokerFileSystem has expired:
-     *   1. For the authentication mode of Kerberos and S3 aksk, use the createTime to determine whether it expires
-     *   2. For other authentication modes, the lastAccessTime is used to determine whether it has expired
+     * In view of the different expiration mechanisms of different authentication modes，
+     * there are two ways to determine whether BrokerFileSystem has expired:
+     * 1. For the authentication mode of Kerberos and S3 aksk, use the createTime to determine whether it expires
+     * 2. For other authentication modes, the lastAccessTime is used to determine whether it has expired
      */
     private BrokerFileSystem updateCachedFileSystem(FileSystemIdentity fileSystemIdentity, Map<String, String> properties) {
         BrokerFileSystem brokerFileSystem;
@@ -1300,7 +1345,7 @@ public class FileSystemManager {
                         Configuration conf = new HdfsConfiguration();
                         conf.set(CommonConfigurationKeysPublic.HADOOP_SECURITY_AUTHENTICATION, AUTHENTICATION_KERBEROS);
                         UserGroupInformation ugi = UserGroupInformation.loginUserFromKeytabAndReturnUGI(
-                            preparePrincipal(properties.get(KERBEROS_PRINCIPAL)), properties.get(KERBEROS_KEYTAB));
+                                preparePrincipal(properties.get(KERBEROS_PRINCIPAL)), properties.get(KERBEROS_KEYTAB));
                         // update FileSystem TGT
                         ugi.checkTGTAndReloginFromKeytab();
                     } catch (Exception e) {
@@ -1334,7 +1379,7 @@ public class FileSystemManager {
             FileStatus fileStatus = fileSystem.getDFSFileSystem().getFileStatus(filePath);
             if (fileStatus.isDirectory()) {
                 throw new BrokerException(TBrokerOperationStatusCode.INVALID_INPUT_FILE_PATH,
-                    "not a file: {}", path);
+                        "not a file: {}", path);
             }
             return fileStatus.getLen();
         } catch (IOException e) {

@@ -136,8 +136,8 @@ public class PropertyConverterTest extends TestWithFeService {
     public void testS3RepositoryPropertiesConverter() throws Exception {
         FeConstants.runningUnitTest = true;
         String s3Repo = "CREATE REPOSITORY `s3_repo`\n"
-                + "WITH S3\n"
-                + "ON LOCATION 's3://s3-repo'\n"
+                + "WITH broker\n"
+                + "ON LOCATION 'gs://s3-repo"
                 + "PROPERTIES\n"
                 + "(\n"
                 + "    'AWS_ENDPOINT' = 'http://s3.us-east-1.amazonaws.com',\n"
@@ -173,9 +173,9 @@ public class PropertyConverterTest extends TestWithFeService {
     @Test
     public void testBosBrokerRepositoryPropertiesConverter() throws Exception {
         FeConstants.runningUnitTest = true;
-        String bosBroker = "CREATE REPOSITORY `bos_broker_repo`\n"
-                + "WITH BROKER `bos_broker`\n"
-                + "ON LOCATION 'bos://backup'\n"
+        String bosBroker = "CREATE REPOSITORY `gcs_broker_repo`\n"
+                + "WITH BROKER `gcs_broker`\n"
+                + "ON LOCATION 'gs://backup'\n"
                 + "PROPERTIES\n"
                 + "(\n"
                 + "    'bos_endpoint' = 'http://gz.bcebos.com',\n"
