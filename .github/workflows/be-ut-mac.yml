@@ -21,8 +21,7 @@ on:
   pull_request:
   schedule:
     - cron: '0 4,10,16,22 * * *'    # schedule it periodically to share the cache
-needs:
-  - latest-code-check      
+  
 
 concurrency:
   group: ${{ github.ref }} (BE UT macOS)
@@ -32,13 +31,13 @@ jobs:
   run-ut:
     name: BE UT (macOS)
     runs-on: macos-12
+    needs: Latest-Master-Code-Check
     steps:
       - name: Checkout
         uses: actions/checkout@v3
         with:
           persist-credentials: false
           submodules: recursive
-
       - name: Paths Filter
         if: ${{ github.event_name != 'schedule' }}
         uses: ./.github/actions/paths-filter
