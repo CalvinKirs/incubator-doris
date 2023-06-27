@@ -134,6 +134,7 @@ import org.apache.doris.deploy.DeployManager;
 import org.apache.doris.deploy.impl.AmbariDeployManager;
 import org.apache.doris.deploy.impl.K8sDeployManager;
 import org.apache.doris.deploy.impl.LocalFileDeployManager;
+import org.apache.doris.event.EventSchedulerJobMgr;
 import org.apache.doris.external.elasticsearch.EsRepository;
 import org.apache.doris.external.iceberg.IcebergTableCreationRecordMgr;
 import org.apache.doris.ha.BDBHA;
@@ -451,6 +452,8 @@ public class Env {
     private BinlogManager binlogManager;
 
     private BinlogGcer binlogGcer;
+    
+    private EventSchedulerJobMgr eventSchedulerJobMgr;
 
     /**
      * TODO(tsy): to be removed after load refactor
@@ -2017,6 +2020,12 @@ public class Env {
     public long loadAnalysisManager(DataInputStream in, long checksum) throws IOException {
         this.analysisManager = AnalysisManager.readFields(in);
         LOG.info("finished replay AnalysisMgr from image");
+        return checksum;
+    }
+    
+    public long loadEventJobManager(DataInputStream in, long checksum) throws IOException {
+        this.eventSchedulerJobMgr = EventSchedulerJobMgr.read(in);
+        LOG.info("finished replay event job from image");
         return checksum;
     }
 

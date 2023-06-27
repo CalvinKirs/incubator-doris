@@ -230,6 +230,12 @@ public class MetaPersistMethod {
                 metaPersistMethod.writeMethod =
                         Env.class.getDeclaredMethod("saveAnalysisMgr", CountingDataOutputStream.class, long.class);
                 break;
+            case "eventSchedulerJobMgr":
+                metaPersistMethod.readMethod =
+                        Env.class.getDeclaredMethod("loadEventJobMgr", DataInputStream.class, long.class);
+                metaPersistMethod.writeMethod =
+                        Env.class.getDeclaredMethod("saveEventJobMgr", CountingDataOutputStream.class, long.class);
+                break;
             default:
                 break;
         }
