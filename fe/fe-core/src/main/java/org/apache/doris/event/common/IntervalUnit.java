@@ -12,10 +12,10 @@ public enum IntervalUnit {
     HOUR_MINUTE("hour_minute"),
     HOUR("hour", 0L, v -> TimeUnit.HOURS.toMillis(Long.parseLong(v))),
     DAY_SECOND("day_second"),
-    DAY_MINUTE("day_minute"),
-    DAY_HOUR("day_hour"),
+    DAY_MINUTE("day_minute", 0L, v -> TimeUnit.MINUTES.toMillis(Long.parseLong(v) * 24 * 60)),
+    DAY_HOUR("day_hour", 0L, v -> TimeUnit.HOURS.toMillis(Long.parseLong(v) * 24)),
     DAY("day", 0L, v -> TimeUnit.DAYS.toMillis(Long.parseLong(v))),
-    WEEK("week", 0L, v -> TimeUnit.DAYS.toMillis(Long.parseLong(v) * 7)),
+    WEEK("week", 0L, v -> TimeUnit.DAYS.toMillis(Long.parseLong(v) * 7));
 
 
     private final String unit;

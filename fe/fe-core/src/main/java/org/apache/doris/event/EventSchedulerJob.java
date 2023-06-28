@@ -1,7 +1,7 @@
 package org.apache.doris.event;
 
 import org.apache.commons.lang3.StringUtils;
-import org.apache.doris.event.common.EventSchedulerJobConfiguration;
+import org.apache.doris.event.common.JobConfiguration;
 
 import java.util.Map;
 
@@ -17,8 +17,8 @@ public class EventSchedulerJob {
     
     public void setStartTime(Map<String,String> params) {
         this.startsTimeStampMs = 0L;
-        if(StringUtils.isNotBlank(params.get(EventSchedulerJobConfiguration.START_TIME.getName()))) {
-            startsTimeStampMs = Long.parseLong(params.get(EventSchedulerJobConfiguration.START_TIME.getName()));
+        if(StringUtils.isNotBlank(params.get(JobConfiguration.START_TIME.getName()))) {
+            startsTimeStampMs = Long.parseLong(params.get(JobConfiguration.START_TIME.getName()));
         } 
     }
         

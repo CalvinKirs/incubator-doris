@@ -3,7 +3,7 @@ package org.apache.doris.event.common;
 import java.util.Arrays;
 import java.util.function.Function;
 
-public enum EventSchedulerJobConfiguration {
+public enum JobConfiguration {
 
     EVENT_NAME("event_name", null, value -> value.replace(" ", "")),
     SCHEDULER_INTERVAL_VALUE("interval_value", -1, Integer::parseInt),
@@ -29,14 +29,14 @@ public enum EventSchedulerJobConfiguration {
 
     private final Function<String, Object> converter;
 
-    <T> EventSchedulerJobConfiguration(String name, T defaultValue, Function<String, T> converter) {
+    <T> JobConfiguration(String name, T defaultValue, Function<String, T> converter) {
         this.name = name;
         this.defaultValue = defaultValue;
         this.converter = (Function<String, Object>) converter;
     }
 
-    EventSchedulerJobConfiguration getByName(String name) {
-        return Arrays.stream(EventSchedulerJobConfiguration.values())
+    JobConfiguration getByName(String name) {
+        return Arrays.stream(JobConfiguration.values())
                 .filter(config -> config.getName().equals(name))
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown configuration " + name));
