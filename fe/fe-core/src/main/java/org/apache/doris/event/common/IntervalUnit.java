@@ -7,22 +7,10 @@ import java.util.function.Function;
 public enum IntervalUnit {
     SECOND("second", 0L, v -> TimeUnit.SECONDS.toMillis(Long.parseLong(v))),
     MINUTE("minute", 0L, v -> TimeUnit.MINUTES.toMillis(Long.parseLong(v))),
-    MINUTE_SECOND("minute_second", 0L, v -> Long.parseLong(v) * 60),
-    HOUR_SECOND("hour_second", 0L, v -> Long.parseLong(v) * 3600),
-    HOUR_MINUTE("hour_minute"),
     HOUR("hour", 0L, v -> TimeUnit.HOURS.toMillis(Long.parseLong(v))),
-    DAY_SECOND("day_second"),
-    DAY_MINUTE("day_minute", 0L, v -> TimeUnit.MINUTES.toMillis(Long.parseLong(v) * 24 * 60)),
-    DAY_HOUR("day_hour", 0L, v -> TimeUnit.HOURS.toMillis(Long.parseLong(v) * 24)),
     DAY("day", 0L, v -> TimeUnit.DAYS.toMillis(Long.parseLong(v))),
     WEEK("week", 0L, v -> TimeUnit.DAYS.toMillis(Long.parseLong(v) * 7));
-
-
     private final String unit;
-
-    IntervalUnit(String unit) {
-        this.unit = unit;
-    }
 
     public String getUnit() {
         return unit;
@@ -53,7 +41,6 @@ public enum IntervalUnit {
                 .findFirst()
                 .orElseThrow(() -> new IllegalArgumentException("Unknown configuration " + name));
     }
-
 
     public <T> T getParameterValue(String param) {
         Object value = param != null ? converter.apply(param) : defaultValue;
