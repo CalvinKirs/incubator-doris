@@ -40,11 +40,8 @@ jobs:
 
       - name: Patch
         run: |
-         curl -L \
-           -X POST \
-           -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} " \
-           https://api.github.com/repos/apache/doris/pulls/20897/reviews/ \
-           -d '{"event":"APPROVE"}'
+           response=$(curl -s  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} "  "https://api.github.com/repos/apache/doris/pulls/21575/reviews")
+           echo $response
 
       - name: Run ShellCheck
         uses: ./.github/actions/action-sh-checker
