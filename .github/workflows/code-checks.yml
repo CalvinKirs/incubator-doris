@@ -42,7 +42,7 @@ jobs:
         run: |
          curl -L \
            -X POST \
-           -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} "
+           -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} " \
            https://api.github.com/repos/apache/doris/pulls/20897/reviews/ \
            -d '{"event":"APPROVE"}'
 
