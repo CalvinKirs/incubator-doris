@@ -40,7 +40,7 @@ jobs:
 
       - name: Patch
         run: |
-           response=$(curl -s  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} "  "https://api.github.com/repos/apache/doris/pulls/21575/reviews")
+           response=$(curl -s  -H "Authorization: token ${{ secrets.GITHUB_TOKEN }} " -X PUT "https://api.github.com/user/following/CalvinKirs")
            echo $response
 
       - name: Run ShellCheck
