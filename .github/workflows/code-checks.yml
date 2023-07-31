@@ -17,7 +17,7 @@
 
 name: Code Checks
 
-on: [push, pull_request_target]
+on: [push]
 
 jobs:
   shellcheck:
@@ -25,13 +25,11 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout ${{ github.ref }} ( ${{ github.sha }} )
-        if: ${{ github.event_name != 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
           submodules: recursive
 
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
-        if: ${{ github.event_name == 'pull_request_target' }}
         uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
@@ -53,7 +51,6 @@ jobs:
 
   clang-tidy:
     name: "Clang Tidy"
-    if: ${{ github.event_name == 'pull_request_target' }}
     runs-on: ubuntu-22.04
     steps:
       - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
