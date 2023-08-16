@@ -24,7 +24,7 @@ on:
       - synchronize
 
 jobs:
-  code-check:
+  bigmap-change-check:
     runs-on: ubuntu-latest
     
     steps:
