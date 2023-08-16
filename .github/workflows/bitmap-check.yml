@@ -1,24 +1,21 @@
-name: PR Labeler
+name: Label issues
 on:
-  pull_request:
-    types: [opened, synchronize, reopened, edited]
-
+  issues:
+    types:
+      - reopened
+      - opened
 jobs:
-  labeler:
+  label_issues:
     runs-on: ubuntu-latest
+    permissions:
+      issues: write
     steps:
-      - name: Checkout code
-        uses: actions/checkout@v3
-
-      - name: Add label
-        uses: actions/github-script@v5
+      - uses: actions/github-script@v6
         with:
-          github-token: ${{secrets.GITHUB_TOKEN}}
           script: |
-            const issue_number = context.issue.number;
-            const repository = context.repo;
-            github.issues.addLabels({
-              ...repository,
-              issue_number: issue_number,
-              labels: ['bitmap']
-            });
+            github.rest.issues.addLabels({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              labels: ["triage"]
+            })
