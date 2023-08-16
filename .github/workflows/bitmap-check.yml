@@ -10,16 +10,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get install -y git
-
-      - name: Check for bitmap string
-        id: check
-        run: |
-          git diff -- ':(exclude)*.md' HEAD~1..HEAD | grep -q 'bitmap'
-          echo "::set-output name=bitmap::$(echo $?)"
-
       - name: Add label
         uses: actions/github-script@v5
         with:
