@@ -47,7 +47,7 @@ jobs:
           github-token: ${{ secrets.GITHUB_TOKEN }}
           script: |
             const issue = context.issue;
-            const label = 'delete_bitmap';
+            const label = 'bitmap';
             const addLabel = await github.issues.addLabels({
               ...issue,
               labels: [label]
