@@ -42,7 +42,6 @@ jobs:
           fi
           
       - name: Add label if string found
-        if: ${{ steps.code-check.outputs.contains_string == 'true' }}
         uses: actions/github-script@v4
         with:
           github-token: ${{ secrets.GITHUB_TOKEN }}
