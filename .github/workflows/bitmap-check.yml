@@ -1,18 +1,50 @@
-name: Label issues
-on:
-  pull_request:
-jobs:
-  label_issues:
-    runs-on: ubuntu-latest
-    permissions:
+# Licensed to the Apache Software Foundation (ASF) under one
+# or more contributor license agreements.  See the NOTICE file
+# distributed with this work for additional information
+# regarding copyright ownership.  The ASF licenses this file
+# to you under the Apache License, Version 2.0 (the
+# "License"); you may not use this file except in compliance
+# with the License.  You may obtain a copy of the License at
+#
+#   http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing,
+# software distributed under the License is distributed on an
+# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
+# KIND, either express or implied.  See the License for the
+# specific language governing permissions and limitations
+# under the License.
+
+---
+  name: Check has Bitmap change
+  on:
+    pull_request:
+  jobs:
+    label_issues:
+      runs-on: ubuntu-latest
+      permissions:
         pull-requests: 'write'
-    steps:
-      - uses: actions/github-script@v6
-        with:
-          script: |
-            github.rest.issues.addLabels({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              labels: ["bitmap"]
-            })
+      steps:
+        - name: Checkout PR code
+          uses: actions/checkout@v3
+          with:
+            fetch-depth: 0
+            ref: ${{ github.event.pull_request.head.sha }}
+            repository: ${{ github.event.pull_request.head.repo.full_name }}
+        - name: Get PR diff
+          id: pr-diff
+          run: |
+            git remote add upstream https://github.com/apache/doris.git
+            git fetch upstream master
+            git diff --unified=0 upstream/master HEAD > pr_diff.txt
+            echo "::set-output name=diff::$(cat pr_diff.txt)"
+        - name: Add Label if needed
+          uses: actions/github-script@v6
+          with:
+            script: |
+              github.rest.issues.addLabels({
+                issue_number: context.issue.number,
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                labels: ["bitmap"]
+              })
