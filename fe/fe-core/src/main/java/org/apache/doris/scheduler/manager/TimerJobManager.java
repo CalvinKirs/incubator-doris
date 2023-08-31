@@ -23,6 +23,7 @@ import org.apache.doris.common.PatternMatcher;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.LogBuilder;
 import org.apache.doris.common.util.LogKey;
+import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.scheduler.constants.JobCategory;
 import org.apache.doris.scheduler.constants.JobStatus;
 import org.apache.doris.scheduler.disruptor.TaskDisruptor;
@@ -326,6 +327,7 @@ public class TimerJobManager implements Closeable, Writable {
         if (lastBatchSchedulerTimestamp + BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS < System.currentTimeMillis()) {
             this.lastBatchSchedulerTimestamp = System.currentTimeMillis();
         }
+        System.out.println("executeJobIdsWithinLastTenMinutesWindow1"+ TimeUtils.longToTimeString(this.lastBatchSchedulerTimestamp));
         if (jobMap.isEmpty()) {
             this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
             return;
@@ -344,6 +346,7 @@ public class TimerJobManager implements Closeable, Writable {
             }
         });
         this.lastBatchSchedulerTimestamp += BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS;
+        System.out.println("executeJobIdsWithinLastTenMinutesWindow2"+ TimeUtils.longToTimeString(this.lastBatchSchedulerTimestamp));
     }
 
     /**
@@ -352,8 +355,8 @@ public class TimerJobManager implements Closeable, Writable {
      */
     private void cycleSystemSchedulerTasks() {
         dorisTimer.newTimeout(timeout -> {
+            System.out.println("cycle system scheduler tasks"+ TimeUtils.longToTimeString(System.currentTimeMillis()));
             batchSchedulerTasks();
-            cycleSystemSchedulerTasks();
         }, BATCH_SCHEDULER_INTERVAL_MILLI_SECONDS, TimeUnit.MILLISECONDS);
     }
 
