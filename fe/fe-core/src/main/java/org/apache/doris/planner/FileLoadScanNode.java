@@ -163,7 +163,8 @@ public class FileLoadScanNode extends FileScanNode {
         for (SlotDescriptor slotDescriptor : tupleDesc.getSlots()) {
             dstDescMap.put(slotDescriptor.getColumn().getName(), slotDescriptor);
         }
-
+        analyzer.registerTupleDescriptor(tupleDesc);
+        whereExpr.analyze(analyzer);
         // substitute SlotRef in filter expression
         // where expr must be equal first to transfer some predicates(eg: BetweenPredicate to BinaryPredicate)
         Expr newWhereExpr = analyzer.getExprRewriter()
