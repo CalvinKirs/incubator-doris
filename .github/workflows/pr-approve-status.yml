@@ -18,6 +18,9 @@
 name: Need_2_Approval
 
 on:
+  push:
+    branches:
+      - master
   pull_request_review:
     types: [submitted]
 jobs:
