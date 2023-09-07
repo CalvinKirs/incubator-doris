@@ -766,7 +766,11 @@ public class FunctionCallExpr extends Expr {
             }
             msg.setAggExpr(aggFnParams.createTAggregateExpr(isMergeAggFn));
         } else {
-            msg.node_type = TExprNodeType.FUNCTION_CALL;
+            if (fnName.getFunction().equalsIgnoreCase("array_filter")) {
+                msg.node_type = TExprNodeType.LAMBDA_FUNCTION_CALL_EXPR;
+            } else {
+                msg.node_type = TExprNodeType.FUNCTION_CALL;
+            }
         }
     }
 
