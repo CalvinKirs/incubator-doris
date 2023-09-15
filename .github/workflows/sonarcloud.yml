@@ -90,27 +90,9 @@ jobs:
     if: ${{ github.event_name == 'pull_request_target' }}
     runs-on: ubuntu-22.04
     steps:
-      - name: Checkout ${{ github.ref }} ( ${{ github.event.pull_request.head.sha }} )
-        uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-          submodules: recursive
-
-      - name: Paths Filter
-        uses: ./.github/actions/paths-filter
-        id: filter
-        with:
-          filters: |
-            be_changes:
-              - 'be/**'
-              - 'gensrc/proto/**'
-              - 'gensrc/thrift/**'
-
       - name: Generate compile_commands.json
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         run: |
           export DEFAULT_DIR='/opt/doris'
-
           mkdir "${DEFAULT_DIR}"
           wget https://github.com/amosbird/ldb_toolchain_gen/releases/download/v0.18/ldb_toolchain_gen.sh \
             -q -O /tmp/ldb_toolchain_gen.sh
@@ -128,7 +110,6 @@ jobs:
           DISABLE_JAVA_UDF=ON ENABLE_PCH=OFF DORIS_TOOLCHAIN=clang OUTPUT_BE_BINARY=0 ./build.sh --be
 
       - name: SonarCloud Scan
-        if: ${{ steps.filter.outputs.be_changes == 'true' }}
         uses: sonarsource/sonarcloud-github-action@master
         with:
           projectBaseDir: be
