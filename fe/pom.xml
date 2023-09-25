@@ -195,7 +195,7 @@ under the License.
         <doris.home>${fe.dir}/../</doris.home>
         <revision>1.2-SNAPSHOT</revision>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <doris.hive.catalog.shade.version>1.0.1</doris.hive.catalog.shade.version>
+        <doris.hive.catalog.shade.version>1.0.0-GA</doris.hive.catalog.shade.version>
         <maven.compiler.source>1.8</maven.compiler.source>
         <maven.compiler.target>1.8</maven.compiler.target>
         <!--plugin parameters-->
@@ -513,7 +513,21 @@ under the License.
                         <groupId>org.springframework.boot</groupId>
                         <artifactId>spring-boot-starter-tomcat</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>org.springframework</groupId>
+                        <artifactId>spring-web</artifactId>
+                    </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>spring-shade-5</artifactId>
+                <version>${doris.hive.catalog.shade.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.qcloud</groupId>
+                <artifactId>cos_api-bundle</artifactId>
+                <version>5.6.166</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.hadoop</groupId>
@@ -680,6 +694,17 @@ under the License.
                 <groupId>org.apache.doris</groupId>
                 <artifactId>je</artifactId>
                 <version>${je.version}</version>
+                <exclusions>
+                    <exclusion>
+                        <groupId>org.checkerframework</groupId>
+                        <artifactId>checker</artifactId>
+                    </exclusion>
+                </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.doris</groupId>
+                <artifactId>doris-third-party</artifactId>
+                <version>${doris.hive.catalog.shade.version}</version>
             </dependency>
             <!-- https://mvnrepository.com/artifact/de.jflex/jflex -->
             <dependency>
@@ -1136,6 +1161,10 @@ under the License.
                         <artifactId>jackson-databind</artifactId>
                         <groupId>com.fasterxml.jackson.core</groupId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop.thirdparty</groupId>
+                        <artifactId>hadoop-shaded-guava</artifactId>
+                    </exclusion>
                 </exclusions>
             </dependency>
             <dependency>
@@ -1195,6 +1224,14 @@ under the License.
                     <exclusion>
                         <groupId>log4j</groupId>
                         <artifactId>log4j</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop.thirdparty</groupId>
+                        <artifactId>hadoop-shaded-guava</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hadoop.thirdparty</groupId>
+                        <artifactId>hadoop-shaded-protobuf_3_7</artifactId>
                     </exclusion>
                 </exclusions>
             </dependency>
@@ -1271,7 +1308,25 @@ under the License.
                         <groupId>org.apache.hive</groupId>
                         <artifactId>hive-storage-api</artifactId>
                     </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hbase</groupId>
+                        <artifactId>hbase-hadoop2-compat</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.apache.hbase.thirdparty</groupId>
+                        <artifactId>hbase-shaded-miscellaneous</artifactId>
+                    </exclusion>
+                    <exclusion>
+                        <groupId>org.glassfish</groupId>
+                        <artifactId>javax.el</artifactId>
+                    </exclusion>
                 </exclusions>
+            </dependency>
+            <dependency>
+                <groupId>org.codehaus.jackson</groupId>
+                <artifactId>jackson-mapper-asl</artifactId>
+                <version>1.9.13</version>
+                <scope>provided</scope>
             </dependency>
             <dependency>
                 <groupId>org.aspectj</groupId>
@@ -1289,11 +1344,6 @@ under the License.
                 <groupId>org.apache.hudi</groupId>
                 <artifactId>hudi-hadoop-mr</artifactId>
                 <version>${hudi.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>org.apache.parquet</groupId>
-                <artifactId>parquet-avro</artifactId>
-                <version>${parquet.version}</version>
             </dependency>
 
             <dependency>
@@ -1468,11 +1518,6 @@ under the License.
             <dependency>
                 <groupId>io.grpc</groupId>
                 <artifactId>grpc-netty</artifactId>
-                <version>${grpc.version}</version>
-            </dependency>
-            <dependency>
-                <groupId>io.grpc</groupId>
-                <artifactId>grpc-core</artifactId>
                 <version>${grpc.version}</version>
             </dependency>
             <dependency>

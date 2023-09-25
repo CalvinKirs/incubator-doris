@@ -25,7 +25,6 @@ import org.apache.doris.datasource.property.constants.OssProperties;
 import org.apache.doris.datasource.property.constants.S3Properties;
 
 import org.apache.hadoop.conf.Configuration;
-import org.apache.hadoop.fs.aliyun.oss.Constants;
 import org.apache.iceberg.TableOperations;
 import org.apache.iceberg.aws.s3.S3FileIO;
 import org.apache.iceberg.catalog.TableIdentifier;
@@ -50,7 +49,8 @@ public class DLFCatalog extends HiveCompatibleCatalog {
 
     protected FileIO initializeFileIO(Map<String, String> properties, Configuration hadoopConf) {
         // read from converted properties or default by old s3 aws properties
-        String endpoint = properties.getOrDefault(Constants.ENDPOINT_KEY, properties.get(S3Properties.Env.ENDPOINT));
+        String endpoint = properties.getOrDefault(OssProperties.getOrginalOssConfigKey(OssProperties.ENDPOINT),
+                properties.get(S3Properties.Env.ENDPOINT));
         CloudCredential credential = new CloudCredential();
         credential.setAccessKey(properties.getOrDefault(OssProperties.ACCESS_KEY,
                     properties.get(S3Properties.Env.ACCESS_KEY)));

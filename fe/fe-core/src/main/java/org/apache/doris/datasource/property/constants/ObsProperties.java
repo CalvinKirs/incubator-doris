@@ -33,7 +33,13 @@ public class ObsProperties extends BaseProperties {
     public static final String ACCESS_KEY = "obs.access_key";
     public static final String SECRET_KEY = "obs.secret_key";
     public static final String SESSION_TOKEN = "obs.session_token";
+
+    public static final String ObsHdfsImpl = "org.apache.hadoop.fs.obs.OBSFileSystem";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
+
+    public static String getOrinigalObsConfigKey(String key) {
+        return OBS_PREFIX + key;
+    }
 
     public static class FS {
         public static final String SESSION_TOKEN = "fs.obs.session.token";

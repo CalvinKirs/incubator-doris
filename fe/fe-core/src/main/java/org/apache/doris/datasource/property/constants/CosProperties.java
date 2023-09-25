@@ -32,6 +32,12 @@ public class CosProperties extends BaseProperties {
     public static final String SECRET_KEY = "cos.secret_key";
     public static final String REGION = "cos.region";
     public static final String SESSION_TOKEN = "cos.session_token";
+    public static final String COSN_ENDPOINT_SUFFIX_KEY = "fs.cosn.bucket.endpoint_suffix";
+
+    public static final String COSN_SECRET_ID_KEY = "fs.cosn.userinfo.secretId";
+    public static final String COSN_SECRET_KEY_KEY = "fs.cosn.userinfo.secretKey";
+
+    public static final String CosHdfsImpl = "org.apache.hadoop.fs.cosn.CosNFileSystem";
     public static final List<String> REQUIRED_FIELDS = Arrays.asList(ENDPOINT, ACCESS_KEY, SECRET_KEY);
 
 
