@@ -39,7 +39,7 @@ Doris Job 是根据既定计划运行的任务，用于在特定时间或指定�
 Job 有两种类型：`ONE_TIME` 和 `RECURRING`。其中 `ONE_TIME` 类型的 Job 会在指定的时间点触发，它主要用于一次性任务，而 `RECURRING` 类型的 Job 会在指定的时间间隔内循环触发, 此方式主要用于周期性执行的任务。
 `RECURRING` 类型的 Job 可指定开始时间，结束时间，即 `STARTS\ENDS`, 如果不指定开始时间，则默认首次执行时间为当前时间 + 一次调度周期。如果指定结束时间，则 task 执行完成如果达到结束时间（或超过，或下次执行周期会超过结束时间）则更新为FINISHED状态，此时不会再产生 Task。
 
-JOB 共4种状态（`RUNNING`,`STOPPED`,`PAUSED`,`FINISHED`,），初始状态为RUNNING，RUNNING状态的JOB会根据既定的调度周期去生成 TASK 执行，Job 执行完成达到结束时间则状态变更为 `FINISHED`.
+JOB 共4种状态（`RUNNING`,`STOPPED`,`PAUSED`,`FINISHED`,），初始状态为RUNNING，RUNNING 状态的JOB会根据既定的调度周期去生成 TASK 执行，Job 执行完成达到结束时间则状态变更为 `FINISHED`.
 
 RUNNING 状态的JOB 可以被 pause，即暂停，此时不会再生成 Task。
 
@@ -82,7 +82,7 @@ interval:
 
 - 关键字 CREATE JOB 加上作业名称，它在一个 db 中标识唯一事件。
 - ON SCHEDULE 子句，它指定了 Job 作业的类型和触发时间以及频率。
-- DO 子句，它指定了 Job 作业触发时需要执行的操作。
+- DO 子句，它指定了 Job 作业触发时需要执行的操作, 即一条 SQL 语句。
 
 这是一个最简单的例子：
 
