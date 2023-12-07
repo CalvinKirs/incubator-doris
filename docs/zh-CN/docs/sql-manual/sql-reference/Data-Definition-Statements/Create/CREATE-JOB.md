@@ -92,7 +92,7 @@ CREATE JOB my_job ON SCHEDULE EVERY 1 MINUTE DO INSERT INTO db1.tbl1 SELECT * FR
 
 该语句表示创建一个名为 my_job 的作业，每分钟执行一次，执行的操作是将 db2.tbl2 中的数据导入到 db1.tbl1 中。
 
-SCHEDULER 语句用于定义作业的执行时间，频率以及持续时间，它可以指定一次性作业或者周期性作业。
+SCHEDULE 语句用于定义作业的执行时间，频率以及持续时间，它可以指定一次性作业或者周期性作业。
 - AT timestamp
 
   用于一次性事件，它指定事件仅在 给定的日期和时间执行一次 timestamp，该日期和时间必须包含日期和时间
@@ -135,7 +135,7 @@ CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01 00:00:00' DO INSERT
 创建一个周期性的 Job，它会在 2020-01-01 00:00:00 时开始执行，每天执行一次，执行的操作是将 db2.tbl2 中的数据导入到 db1.tbl1 中，该 Job 在 2020-01-01 00:10:00 时结束。
 
 ```sql
-CREATE JOB my_job ON SCHEDULER EVERY 1 DAY STARTS '2020-01-01 00:00:00' ENDS '2020-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 create_time >=  days_add(now(),-1);
+CREATE JOB my_job ON SCHEDULE EVERY 1 DAY STARTS '2020-01-01 00:00:00' ENDS '2020-01-01 00:10:00' DO INSERT INTO db1.tbl1 SELECT * FROM db2.tbl2 create_time >=  days_add(now(),-1);
 ```
 ### INSERT JOB
 目前仅支持 ***INSERT 内表***
