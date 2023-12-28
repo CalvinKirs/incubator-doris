@@ -1,6 +1,6 @@
 name: Add comment
 on:
-  issues:
+  pull_request:
 jobs:
   add-comment:
     runs-on: ubuntu-latest
