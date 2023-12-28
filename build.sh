@@ -16,6 +16,7 @@
 # specific language governing permissions and limitations
 # under the License.
 
+
 ##############################################################
 # This script is used to compile Apache Doris
 # Usage:
