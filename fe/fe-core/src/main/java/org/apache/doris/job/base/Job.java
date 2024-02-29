@@ -48,7 +48,7 @@ public interface Job<T extends AbstractTask, C> {
      * @param taskContext The context of tasks to create.
      * @return A list of tasks.
      */
-    List<T> createTasks(TaskType taskType, C taskContext);
+    List<T> createTasks(TaskType taskType, C taskContext,Long groupId);
 
     /**
      * Cancels the task with the specified taskId.

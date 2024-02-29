@@ -18,6 +18,7 @@
 package org.apache.doris.job.common;
 
 public enum TaskStatus {
+    SCHEDULE_QUEUE,
     PENDING,
     CANCELED,
     RUNNING,

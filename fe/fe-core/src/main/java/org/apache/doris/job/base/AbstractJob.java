@@ -30,6 +30,9 @@ import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
+import org.apache.doris.job.scheduler.TaskDispatchEvent;
+import org.apache.doris.job.scheduler.TaskDispatchEventBus;
+import org.apache.doris.job.scheduler.TaskDispatchOperate;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.qe.ShowResultSetMetaData;
@@ -51,6 +54,7 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantLock;
 import java.util.stream.Collectors;
@@ -92,17 +96,26 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
     @SerializedName(value = "sql")
     String executeSql;
 
-    public AbstractJob() {
+    @SerializedName(value = "stc")
+    private AtomicLong successTaskCount = new AtomicLong(0);
+
+    @SerializedName(value = "ftc")
+    private AtomicLong failTaskCount = new AtomicLong(0);
+
+    @SerializedName(value = "ctc")
+    private AtomicLong cancelTaskCount = new AtomicLong(0);
+
+    protected AbstractJob() {
     }
 
-    public AbstractJob(Long id) {
+    protected AbstractJob(Long id) {
         jobId = id;
     }
 
     /**
      * executeSql and runningTasks is not required for load.
      */
-    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+    protected AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
                        String currentDbName,
                        String comment,
                        UserIdentity createUser,
@@ -111,7 +124,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                 createUser, jobConfig, System.currentTimeMillis(), null);
     }
 
-    public AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
+    protected AbstractJob(Long jobId, String jobName, JobStatus jobStatus,
                        String currentDbName,
                        String comment,
                        UserIdentity createUser,
@@ -140,6 +153,8 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
         }
         for (T task : runningTasks) {
             task.cancel();
+            cancelTaskCount.incrementAndGet();
+            notifyEvent(task, TaskDispatchOperate.DROP_GROUP_TASK);
         }
         runningTasks = new CopyOnWriteArrayList<>();
     }
@@ -157,7 +172,7 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                     .add("Comment")
                     .build();
 
-    protected static long getNextJobId() {
+    protected static long getNextId() {
         return System.nanoTime() + RandomUtils.nextInt();
     }
 
@@ -211,18 +226,23 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
                 log.info("job is not ready for scheduling, job id is {}", jobId);
                 return new ArrayList<>();
             }
-            List<T> tasks = createTasks(taskType, taskContext);
-            tasks.forEach(task -> log.info("common create task, job id is {}, task id is {}", jobId, task.getTaskId()));
+            long groupId = getNextId();
+            List<T> tasks = createTasks(taskType, taskContext, groupId);
+
+            if (log.isDebugEnabled()) {
+                tasks.forEach(task -> log.info("common create task, job id is {}, task id is {}", jobId, task.getTaskId()));
+            }
             return tasks;
         } finally {
             createTaskLock.unlock();
         }
     }
 
-    public void initTasks(Collection<? extends T> tasks, TaskType taskType) {
+    public void initTasks(Collection<? extends T> tasks, TaskType taskType, Long groupId) {
         tasks.forEach(task -> {
             task.setTaskType(taskType);
             task.setJobId(getJobId());
+            task.setTaskGroupId(groupId);
             task.setCreateTimeMs(System.currentTimeMillis());
             task.setStatus(TaskStatus.PENDING);
         });
@@ -290,15 +310,26 @@ public abstract class AbstractJob<T extends AbstractTask, C> implements Job<T, C
 
     @Override
     public void onTaskFail(T task) throws JobException {
+        failTaskCount.incrementAndGet();
         updateJobStatusIfEnd(false);
         runningTasks.remove(task);
+        notifyEvent(task, TaskDispatchOperate.DROP_GROUP_TASK);
     }
 
     @Override
     public void onTaskSuccess(T task) throws JobException {
+        successTaskCount.incrementAndGet();
         updateJobStatusIfEnd(true);
         runningTasks.remove(task);
+        notifyEvent(task, TaskDispatchOperate.EXECUTE_GROUP_NEXT_TASK);
+    }
 
+    private void notifyEvent(T task, TaskDispatchOperate taskDispatchOperate) {
+        if (jobConfig.getMaxConcurrentTaskNum() <= 0) {
+            return;
+        }
+        TaskDispatchEvent taskDispatchEvent = new TaskDispatchEvent(task.getTaskId(), task.getTaskGroupId(), taskDispatchOperate);
+        TaskDispatchEventBus.post(taskDispatchEvent);
     }
 
 

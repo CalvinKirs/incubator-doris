@@ -119,11 +119,17 @@ public class InsertTask extends AbstractTask {
         this(insertInto.getLabelName().get(), insertInto, ctx, executor, statistic);
     }
 
-    public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
-        this.labelName = labelName;
+    public InsertTask(String currentDb, String sql, UserIdentity userIdentity) {
         this.sql = sql;
         this.currentDb = currentDb;
         this.userIdentity = userIdentity;
+    }
+
+    public InsertTask(String labelName, String currentDb, String sql, UserIdentity userIdentity) {
+        this.sql = sql;
+        this.currentDb = currentDb;
+        this.userIdentity = userIdentity;
+        this.labelName = labelName;
     }
 
     public InsertTask(String labelName, InsertIntoTableCommand insertInto,
@@ -158,7 +164,8 @@ public class InsertTask extends AbstractTask {
         if (StringUtils.isNotEmpty(sql)) {
             NereidsParser parser = new NereidsParser();
             this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
-            this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+            this.labelName = Optional.ofNullable(labelName).orElse(getJobId() + LABEL_SPLITTER + getTaskId());
+            this.command.setLabelName(Optional.of(labelName));
             this.command.setJobId(getTaskId());
         }
 
@@ -211,14 +218,15 @@ public class InsertTask extends AbstractTask {
     }
 
     @Override
-    public TRow getTvfInfo() {
+    public TRow getTvfInfo(String jobName) {
         TRow trow = new TRow();
         if (jobInfo == null) {
             // if task not start, load job is null,return pending task show info
-            return getPendingTaskTVFInfo();
+            return getPendingTaskTVFInfo(jobName);
         }
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(jobInfo.getId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(labelName));
         trow.addToColumnValue(new TCell().setStringVal(jobInfo.getState().name()));
         // err msg
@@ -243,10 +251,11 @@ public class InsertTask extends AbstractTask {
     }
 
     // if task not start, load job is null,return pending task show info
-    private TRow getPendingTaskTVFInfo() {
+    private TRow getPendingTaskTVFInfo(String jobName) {
         TRow trow = new TRow();
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getTaskId())));
         trow.addToColumnValue(new TCell().setStringVal(String.valueOf(getJobId())));
+        trow.addToColumnValue(new TCell().setStringVal(jobName));
         trow.addToColumnValue(new TCell().setStringVal(getJobId() + LABEL_SPLITTER + getTaskId()));
         trow.addToColumnValue(new TCell().setStringVal(getStatus().name()));
         trow.addToColumnValue(new TCell().setStringVal(""));

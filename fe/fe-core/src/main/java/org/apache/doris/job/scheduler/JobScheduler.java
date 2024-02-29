@@ -106,7 +106,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
         executeTimerJobIdsWithinLastTenMinutesWindow();
     }
 
-    public void scheduleOneJob(T job) throws JobException {
+    public void scheduleOneJob(T job) {
         if (!job.getJobStatus().equals(JobStatus.RUNNING)) {
             return;
         }
@@ -149,6 +149,7 @@ public class JobScheduler<T extends AbstractJob<?, C>, C> implements Closeable {
             });
         }
     }
+    
 
 
     public void schedulerInstantJob(T job, TaskType taskType, C context) {

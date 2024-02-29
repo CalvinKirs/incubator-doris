@@ -28,8 +28,6 @@ public class ExecuteTaskEvent<T extends AbstractTask> {
 
     private T task;
 
-    private JobExecutionConfiguration jobConfig;
-
     public static <T extends AbstractTask> EventFactory<ExecuteTaskEvent<T>> factory() {
         return ExecuteTaskEvent::new;
     }

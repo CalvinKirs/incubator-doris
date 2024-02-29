@@ -40,6 +40,7 @@ import org.apache.doris.job.base.JobExecuteType;
 import org.apache.doris.job.base.JobExecutionConfiguration;
 import org.apache.doris.job.common.JobStatus;
 import org.apache.doris.job.common.JobType;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.common.TaskType;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.load.FailMsg;
@@ -79,7 +80,6 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
@@ -126,6 +126,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @SerializedName("tis")
+    @Deprecated // (since = "2.1.1", forRemoval = true)
     ConcurrentLinkedQueue<Long> historyTaskIdList;
     @SerializedName("did")
     private final long dbId;
@@ -141,11 +142,14 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     private int progress;
     @SerializedName("fm")
     private FailMsg failMsg;
+    //fixme, we don't need this field presently, it's better storage sql in task
     @SerializedName("plans")
     private List<InsertIntoTableCommand> plans = new ArrayList<>();
     private LoadStatistic loadStatistic = new LoadStatistic();
     private Set<Long> finishedTaskIds = new HashSet<>();
-    private ConcurrentHashMap<Long, InsertTask> idToTasks = new ConcurrentHashMap<>();
+
+    @SerializedName("tas")
+    private ConcurrentLinkedQueue<InsertTask> tasks = new ConcurrentLinkedQueue<>();
     private Map<String, String> properties = new HashMap<>();
     private Set<String> tableNames;
     private AuthorizationInfo authorizationInfo;
@@ -162,9 +166,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     public void gsonPostProcess() throws IOException {
         if (null == plans) {
             plans = new ArrayList<>();
-        }
-        if (null == idToTasks) {
-            idToTasks = new ConcurrentHashMap<>();
         }
         if (null == loadStatistic) {
             loadStatistic = new LoadStatistic();
@@ -218,7 +219,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                      JobExecutionConfiguration jobConfig,
                      Long createTimeMs,
                      String executeSql) {
-        super(getNextJobId(), jobName, jobStatus, dbName, comment, createUser,
+        super(getNextId(), jobName, jobStatus, dbName, comment, createUser,
                 jobConfig, createTimeMs, executeSql);
         this.dbId = ConnectContext.get().getCurrentDbId();
     }
@@ -231,7 +232,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
                      Map<String, String> properties,
                      String comment,
                      JobExecutionConfiguration jobConfig) {
-        super(getNextJobId(), labelName, JobStatus.RUNNING, null,
+        super(getNextId(), labelName, JobStatus.RUNNING, null,
                 comment, ctx.getCurrentUserIdentity(), jobConfig);
         this.ctx = ctx;
         this.plans = plans;
@@ -245,42 +246,38 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     }
 
     @Override
-    public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext) {
+    public List<InsertTask> createTasks(TaskType taskType, Map<Object, Object> taskContext,Long groupId) {
         List<InsertTask> newTasks = new ArrayList<>();
         if (plans.isEmpty()) {
-            InsertTask task = new InsertTask(labelName, getCurrentDbName(), getExecuteSql(), getCreateUser());
-            idToTasks.put(task.getTaskId(), task);
+            InsertTask task = new InsertTask(getCurrentDbName(), getExecuteSql(), getCreateUser());
+            initTasks(newTasks, taskType,groupId);
+
             newTasks.add(task);
-            recordTask(task.getTaskId());
-        } else {
-            // use for load stmt
-            for (InsertIntoTableCommand logicalPlan : plans) {
-                if (!logicalPlan.getLabelName().isPresent()) {
-                    throw new IllegalArgumentException("Load plan need label name.");
-                }
-                InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
-                idToTasks.put(task.getTaskId(), task);
-                newTasks.add(task);
-                recordTask(task.getTaskId());
-            }
+            recordTask(task);
+
+            return newTasks;
         }
-        initTasks(newTasks, taskType);
-        return new ArrayList<>(newTasks);
+        // use for load stmt
+        for (InsertIntoTableCommand logicalPlan : plans) {
+            if (!logicalPlan.getLabelName().isPresent()) {
+                throw new IllegalArgumentException("Load plan need label name.");
+            }
+            InsertTask task = new InsertTask(logicalPlan, ctx, stmtExecutor, loadStatistic);
+            initTasks(newTasks, taskType,groupId);
+            newTasks.add(task);
+            recordTask(task);
+        }
+        return newTasks;
     }
 
-    public void recordTask(long id) {
+    public void recordTask(InsertTask task) {
         if (Config.max_persistence_task_count < 1) {
             return;
         }
-        if (CollectionUtils.isEmpty(historyTaskIdList)) {
-            historyTaskIdList = new ConcurrentLinkedQueue<>();
-            historyTaskIdList.add(id);
-            Env.getCurrentEnv().getEditLog().logUpdateJob(this);
-            return;
-        }
-        historyTaskIdList.add(id);
+        tasks.add(task);
+
         if (historyTaskIdList.size() >= Config.max_persistence_task_count) {
-            historyTaskIdList.poll();
+            tasks.poll();
         }
         Env.getCurrentEnv().getEditLog().logUpdateJob(this);
     }
@@ -325,7 +322,8 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         List<Long> taskIdList = new ArrayList<>(this.historyTaskIdList);
         if (getJobConfig().getExecuteType().equals(JobExecuteType.INSTANT)) {
             Collections.reverse(taskIdList);
-            return queryLoadTasksByTaskIds(taskIdList);
+            //fixme
+            return new ArrayList<>();
         }
         List<LoadJob> loadJobs = Env.getCurrentEnv().getLoadManager().queryLoadJobsByJobIds(taskIdList);
         if (CollectionUtils.isEmpty(loadJobs)) {
@@ -348,19 +346,6 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
         });
         return tasks;
 
-    }
-
-    public List<InsertTask> queryLoadTasksByTaskIds(List<Long> taskIdList) {
-        if (taskIdList.isEmpty()) {
-            return new ArrayList<>();
-        }
-        List<InsertTask> tasks = new ArrayList<>();
-        taskIdList.forEach(id -> {
-            if (null != idToTasks.get(id)) {
-                tasks.add(idToTasks.get(id));
-            }
-        });
-        return tasks;
     }
 
     @Override
@@ -461,7 +446,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
             // load end time
             jobInfo.add(TimeUtils.longToTimeString(getFinishTimeMs()));
             // tracking urls
-            List<String> trackingUrl = idToTasks.values().stream()
+            List<String> trackingUrl = tasks.stream()
                     .map(task -> {
                         if (StringUtils.isNotEmpty(task.getTrackingUrl())) {
                             return task.getTrackingUrl();
@@ -526,7 +511,7 @@ public class InsertJob extends AbstractJob<InsertTask, Map<Object, Object>> impl
     public void updateLoadingStatus(Long beId, TUniqueId loadId, TUniqueId fragmentId, long scannedRows,
                                     long scannedBytes, boolean isDone) {
         loadStatistic.updateLoadProgress(beId, loadId, fragmentId, scannedRows, scannedBytes, isDone);
-        progress = (int) ((double) finishedTaskIds.size() / idToTasks.size() * 100);
+        progress = (int) ((double) finishedTaskIds.size() / tasks.size() * 100);
         if (progress == 100) {
             progress = 99;
         }

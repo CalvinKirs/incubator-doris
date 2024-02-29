@@ -110,6 +110,10 @@ statementBase
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                                 #showConstraint
+    | BATCH ON COLUMN key=identifier 
+              (STARTS starts=identifier | ENDS ends=identifier)?
+              LIMIT limitNum=INTEGER_VALUE
+              USING loadSql=STRING_LITERAL
     ;
 
 constraint

@@ -52,6 +52,9 @@ public abstract class AbstractTask implements Task {
 
     @SerializedName(value = "emg")
     private String errMsg;
+    
+    @SerializedName(value = "tgid")
+    private Long taskGroupId;
 
     public AbstractTask() {
         taskId = getNextTaskId();
@@ -138,11 +141,6 @@ public abstract class AbstractTask implements Task {
 
     public boolean isCancelled() {
         return status.equals(TaskStatus.CANCELED);
-    }
-
-    public String getJobName() {
-        AbstractJob job = Env.getCurrentEnv().getJobManager().getJob(jobId);
-        return job == null ? "" : job.getJobName();
     }
 
     public Job getJobOrJobException() throws JobException {
