@@ -29,6 +29,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.DebugUtil;
 import org.apache.doris.common.util.TimeUtils;
 import org.apache.doris.datasource.hive.HMSExternalTable;
+import org.apache.doris.job.common.TaskStatus;
 import org.apache.doris.job.exception.JobException;
 import org.apache.doris.job.task.AbstractTask;
 import org.apache.doris.mtmv.BaseTableInfo;
@@ -199,8 +200,13 @@ public class MTMVTask extends AbstractTask {
                 partitionSnapshots.putAll(execPartitionSnapshots);
             }
         } catch (Throwable e) {
-            LOG.warn("run task failed: ", e);
-            throw new JobException(e);
+            if (getStatus() == TaskStatus.RUNNING) {
+                LOG.warn("run task failed: ", e);
+                throw new JobException(e);
+            } else {
+                // if status is not `RUNNING`,maybe the task was canceled, therefore, it is a normal situation
+                LOG.info("task [{}] interruption running, because status is [{}]", getTaskId(), getStatus());
+            }
         }
     }
 
@@ -216,6 +222,7 @@ public class MTMVTask extends AbstractTask {
         executor = new StmtExecutor(ctx, new LogicalPlanAdapter(command, ctx.getStatementContext()));
         ctx.setExecutor(executor);
         ctx.setQueryId(queryId);
+        ctx.getState().setNereids(true);
         command.run(ctx, executor);
         if (ctx.getState().getStateType() != MysqlStateType.OK) {
             throw new JobException(ctx.getState().getErrorMessage());
@@ -401,6 +408,10 @@ public class MTMVTask extends AbstractTask {
                 return MTMVPartitionUtil.getPartitionsIdsByNames(mtmv, taskContext.getPartitions());
             }
         }
+        // if refreshMethod is COMPLETE, we must FULL refresh, avoid external table MTMV always not refresh
+        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
+            return mtmv.getPartitionIds();
+        }
         // check if data is fresh
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()
         // to avoid rebuilding the baseTable and causing a change in the tableId
@@ -411,10 +422,6 @@ public class MTMVTask extends AbstractTask {
         }
         // current, if partitionType is SELF_MANAGE, we can only FULL refresh
         if (mtmv.getMvPartitionInfo().getPartitionType() == MTMVPartitionType.SELF_MANAGE) {
-            return mtmv.getPartitionIds();
-        }
-        // if refreshMethod is COMPLETE, we only FULL refresh
-        if (mtmv.getRefreshInfo().getRefreshMethod() == RefreshMethod.COMPLETE) {
             return mtmv.getPartitionIds();
         }
         // We need to use a newly generated relationship and cannot retrieve it using mtmv.getRelation()

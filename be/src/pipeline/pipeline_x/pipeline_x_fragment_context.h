@@ -96,7 +96,7 @@ public:
 
     Status submit() override;
 
-    void close_if_prepare_failed() override;
+    void close_if_prepare_failed(Status st) override;
     void close_sink() override;
 
     void cancel(const PPlanFragmentCancelReason& reason = PPlanFragmentCancelReason::INTERNAL_ERROR,
@@ -190,8 +190,6 @@ private:
 #ifdef __clang__
 #pragma clang diagnostic pop
 #endif
-
-    std::atomic_bool _canceled = false;
 
     // `_dag` manage dependencies between pipelines by pipeline ID. the indices will be blocked by members
     std::map<PipelineId, std::vector<PipelineId>> _dag;

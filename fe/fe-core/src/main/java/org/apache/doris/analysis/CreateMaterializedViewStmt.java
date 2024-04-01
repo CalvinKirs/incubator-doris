@@ -186,6 +186,9 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         }
         SelectList selectList = selectStmt.getSelectList();
         for (SelectListItem selectListItem : selectList.getItems()) {
+            if (selectListItem.isStar()) {
+                throw new AnalysisException("The materialized view not support select star");
+            }
             checkExprValidInMv(selectListItem.getExpr());
         }
     }
@@ -266,15 +269,15 @@ public class CreateMaterializedViewStmt extends DdlStmt {
         for (int i = 0; i < selectList.getItems().size(); i++) {
             SelectListItem selectListItem = selectList.getItems().get(i);
 
-            if (selectListItem.isStar()) {
-                throw new AnalysisException("The materialized view not support select star");
-            }
-
             Expr selectListItemExpr = selectListItem.getExpr();
             if (!(selectListItemExpr instanceof SlotRef) && !(selectListItemExpr instanceof FunctionCallExpr)
                     && !(selectListItemExpr instanceof ArithmeticExpr)) {
                 throw new AnalysisException("The materialized view only support the single column or function expr. "
                         + "Error column: " + selectListItemExpr.toSql());
+            }
+
+            if (!isReplay && selectListItemExpr.hasAutoInc()) {
+                throw new AnalysisException("The materialized view can not involved auto increment column");
             }
 
             if (selectListItemExpr instanceof FunctionCallExpr
@@ -550,7 +553,7 @@ public class CreateMaterializedViewStmt extends DdlStmt {
                 type = Type.BIGINT;
                 break;
             default:
-                mvAggregateType = AggregateType.GENERIC_AGGREGATION;
+                mvAggregateType = AggregateType.GENERIC;
                 if (functionCallExpr.getParams().isDistinct() || functionCallExpr.getParams().isStar()) {
                     throw new AnalysisException(
                             "The Materialized-View's generic aggregation not support star or distinct");

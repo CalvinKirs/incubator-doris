@@ -29,14 +29,17 @@ import org.apache.doris.nereids.trees.expressions.OrderExpression;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.SlotReference;
 import org.apache.doris.nereids.trees.expressions.VirtualSlotReference;
+import org.apache.doris.nereids.trees.expressions.WindowExpression;
 import org.apache.doris.nereids.trees.expressions.functions.agg.AggregateFunction;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.GroupingScalarFunction;
+import org.apache.doris.nereids.trees.expressions.visitor.DefaultExpressionRewriter;
 import org.apache.doris.nereids.trees.plans.Plan;
 import org.apache.doris.nereids.trees.plans.algebra.Repeat;
 import org.apache.doris.nereids.trees.plans.logical.LogicalAggregate;
 import org.apache.doris.nereids.trees.plans.logical.LogicalProject;
 import org.apache.doris.nereids.trees.plans.logical.LogicalRepeat;
 import org.apache.doris.nereids.util.ExpressionUtils;
+import org.apache.doris.nereids.util.PlanUtils.CollectNonWindowedAggFuncs;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
@@ -45,6 +48,7 @@ import com.google.common.collect.Sets;
 import com.google.common.collect.Sets.SetView;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.HashSet;
 import java.util.List;
@@ -80,11 +84,22 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
         return RuleType.NORMALIZE_REPEAT.build(
             logicalRepeat(any()).when(LogicalRepeat::canBindVirtualSlot).then(repeat -> {
                 checkRepeatLegality(repeat);
+                repeat = removeDuplicateColumns(repeat);
                 // add virtual slot, LogicalAggregate and LogicalProject for normalize
                 LogicalAggregate<Plan> agg = normalizeRepeat(repeat);
                 return dealSlotAppearBothInAggFuncAndGroupingSets(agg);
             })
         );
+    }
+
+    private LogicalRepeat<Plan> removeDuplicateColumns(LogicalRepeat<Plan> repeat) {
+        List<List<Expression>> groupingSets = repeat.getGroupingSets();
+        ImmutableList.Builder<List<Expression>> builder = ImmutableList.builder();
+        for (List<Expression> sets : groupingSets) {
+            List<Expression> newList = ImmutableList.copyOf(ImmutableSet.copyOf(sets));
+            builder.add(newList);
+        }
+        return repeat.withGroupSets(builder.build());
     }
 
     private void checkRepeatLegality(LogicalRepeat<Plan> repeat) {
@@ -169,8 +184,7 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .flatMap(function -> function.getArguments().stream())
                 .collect(ImmutableSet.toImmutableSet());
 
-        Set<AggregateFunction> aggregateFunctions = ExpressionUtils.collect(
-                repeat.getOutputExpressions(), AggregateFunction.class::isInstance);
+        List<AggregateFunction> aggregateFunctions = CollectNonWindowedAggFuncs.collect(repeat.getOutputExpressions());
 
         ImmutableSet<Expression> argumentsOfAggregateFunction = aggregateFunctions.stream()
                 .flatMap(function -> function.getArguments().stream().map(arg -> {
@@ -264,8 +278,10 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
     private LogicalAggregate<Plan> dealSlotAppearBothInAggFuncAndGroupingSets(
             @NotNull LogicalAggregate<Plan> aggregate) {
         LogicalRepeat<Plan> repeat = (LogicalRepeat<Plan>) aggregate.child();
-        Set<Slot> aggUsedSlots = aggregate.getOutputExpressions().stream()
-                .flatMap(e -> e.<Set<AggregateFunction>>collect(AggregateFunction.class::isInstance).stream())
+
+        List<AggregateFunction> aggregateFunctions =
+                CollectNonWindowedAggFuncs.collect(aggregate.getOutputExpressions());
+        Set<Slot> aggUsedSlots = aggregateFunctions.stream()
                 .flatMap(e -> e.<Set<SlotReference>>collect(SlotReference.class::isInstance).stream())
                 .collect(ImmutableSet.toImmutableSet());
         Set<Slot> groupingSetsUsedSlot = repeat.getGroupingSets().stream()
@@ -305,20 +321,68 @@ public class NormalizeRepeat extends OneAnalysisRuleFactory {
                 .build());
         aggregate = aggregate.withChildren(ImmutableList.of(repeat));
 
-        // modify aggregate functions' parameter slot reference to new copied slots
         List<NamedExpression> newOutputExpressions = aggregate.getOutputExpressions().stream()
-                .map(output -> (NamedExpression) output.rewriteDownShortCircuit(expr -> {
-                    if (expr instanceof AggregateFunction) {
-                        return expr.rewriteDownShortCircuit(e -> {
-                            if (e instanceof Slot && slotMapping.containsKey(e)) {
-                                return slotMapping.get(e).toSlot();
-                            }
-                            return e;
-                        });
-                    }
-                    return expr;
-                })
-                ).collect(Collectors.toList());
+                .map(e -> (NamedExpression) e.accept(RewriteAggFuncWithoutWindowAggFunc.INSTANCE,
+                        slotMapping))
+                .collect(Collectors.toList());
         return aggregate.withAggOutput(newOutputExpressions);
+    }
+
+    /**
+     * This class use the map(slotMapping) to rewrite all slots in trival-agg.
+     * The purpose of this class is to only rewrite the slots in trival-agg and not to rewrite the slots in window-agg.
+     */
+    private static class RewriteAggFuncWithoutWindowAggFunc
+            extends DefaultExpressionRewriter<Map<Slot, Alias>> {
+
+        private static final RewriteAggFuncWithoutWindowAggFunc
+                INSTANCE = new RewriteAggFuncWithoutWindowAggFunc();
+
+        private RewriteAggFuncWithoutWindowAggFunc() {}
+
+        @Override
+        public Expression visitAggregateFunction(AggregateFunction aggregateFunction, Map<Slot, Alias> slotMapping) {
+            return aggregateFunction.rewriteDownShortCircuit(e -> {
+                if (e instanceof Slot && slotMapping.containsKey(e)) {
+                    return slotMapping.get(e).toSlot();
+                }
+                return e;
+            });
+        }
+
+        @Override
+        public Expression visitWindow(WindowExpression windowExpression, Map<Slot, Alias> slotMapping) {
+            List<Expression> newChildren = new ArrayList<>();
+            Expression function = windowExpression.getFunction();
+            Expression oldFuncChild = function.child(0);
+            boolean hasNewChildren = false;
+            if (oldFuncChild != null) {
+                Expression newFuncChild;
+                newFuncChild = function.child(0).accept(this, slotMapping);
+                hasNewChildren = (newFuncChild != oldFuncChild);
+                newChildren.add(hasNewChildren
+                        ? function.withChildren(ImmutableList.of(newFuncChild)) : function);
+            } else {
+                newChildren.add(function);
+            }
+            for (Expression partitionKey : windowExpression.getPartitionKeys()) {
+                Expression newChild = partitionKey.accept(this, slotMapping);
+                if (newChild != partitionKey) {
+                    hasNewChildren = true;
+                }
+                newChildren.add(newChild);
+            }
+            for (Expression orderKey : windowExpression.getOrderKeys()) {
+                Expression newChild = orderKey.accept(this, slotMapping);
+                if (newChild != orderKey) {
+                    hasNewChildren = true;
+                }
+                newChildren.add(newChild);
+            }
+            if (windowExpression.getWindowFrame().isPresent()) {
+                newChildren.add(windowExpression.getWindowFrame().get());
+            }
+            return hasNewChildren ? windowExpression.withChildren(newChildren) : windowExpression;
+        }
     }
 }

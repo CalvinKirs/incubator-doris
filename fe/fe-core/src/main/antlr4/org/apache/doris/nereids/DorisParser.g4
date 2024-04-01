@@ -38,6 +38,8 @@ statement
     | CALL name=multipartIdentifier LEFT_PAREN (expression (COMMA expression)*)? RIGHT_PAREN #callProcedure
     | (ALTER | CREATE (OR REPLACE)? | REPLACE) (PROCEDURE | PROC) name=multipartIdentifier LEFT_PAREN .*? RIGHT_PAREN .*? #createProcedure
     | DROP (PROCEDURE | PROC) (IF EXISTS)? name=multipartIdentifier #dropProcedure
+    | SHOW PROCEDURE STATUS (LIKE pattern=valueExpression | whereClause)? #showProcedureStatus
+    | SHOW CREATE PROCEDURE name=multipartIdentifier #showCreateProcedure
     ;
 
 statementBase
@@ -52,8 +54,7 @@ statementBase
         (ENGINE EQ engine=identifier)?
         ((AGGREGATE | UNIQUE | DUPLICATE) KEY keys=identifierList (CLUSTER BY clusterKeys=identifierList)?)?
         (COMMENT STRING_LITERAL)?
-        ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST) (partitionKeys=identifierList | partitionExpr=functionCallExpression)
-          LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN)?
+        (partition=partitionTable)?
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | autoBucket=AUTO))?)?
         (ROLLUP LEFT_PAREN rollupDefs RIGHT_PAREN)?
         properties=propertyClause?
@@ -96,7 +97,7 @@ statementBase
         (DISTRIBUTED BY (HASH hashKeys=identifierList | RANDOM) (BUCKETS (INTEGER_VALUE | AUTO))?)?
         propertyClause?
         AS query                                                        #createMTMV
-    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE)?      #refreshMTMV
+    | REFRESH MATERIALIZED VIEW mvName=multipartIdentifier (partitionSpec | COMPLETE | AUTO)      #refreshMTMV
     | ALTER MATERIALIZED VIEW mvName=multipartIdentifier ((RENAME newName=identifier)
        | (REFRESH (refreshMethod | refreshTrigger | refreshMethod refreshTrigger))
        | (SET  LEFT_PAREN fileProperties=propertyItemList RIGHT_PAREN))   #alterMTMV
@@ -127,9 +128,22 @@ constraint
 partitionSpec
     : TEMPORARY? (PARTITION | PARTITIONS) partitions=identifierList
     | TEMPORARY? PARTITION partition=errorCapturingIdentifier
-    // TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
-    // | PARTITIONS LEFT_PAREN ASTERISK RIGHT_PAREN
-    // | PARTITIONS WITH RECENT
+	| (PARTITION | PARTITIONS) LEFT_PAREN ASTERISK RIGHT_PAREN // for auto detect partition in overwriting
+	// TODO: support analyze external table partition spec https://github.com/apache/doris/pull/24154
+	// | PARTITIONS WITH RECENT
+    ;
+
+partitionTable
+    : ((autoPartition=AUTO)? PARTITION BY (RANGE | LIST)? partitionList=identityOrFunctionList
+       (LEFT_PAREN (partitions=partitionsDef)? RIGHT_PAREN))
+    ;
+
+identityOrFunctionList
+    : LEFT_PAREN identityOrFunction (COMMA partitions+=identityOrFunction)* RIGHT_PAREN
+    ;
+
+identityOrFunction
+    : (identifier | functionCallExpression)
     ;
 
 dataDesc
@@ -305,6 +319,7 @@ queryPrimary
 
 querySpecification
     : selectClause
+      intoClause?
       fromClause?
       whereClause?
       aggClause?
@@ -339,6 +354,19 @@ whereClause
 
 fromClause
     : FROM relations
+    ;
+
+// For PL-SQL
+intoClause
+    : bulkCollectClause? INTO (tableRow | identifier) (COMMA (tableRow | identifier))*
+    ;
+
+bulkCollectClause :
+       BULK COLLECT
+     ;
+
+tableRow :
+      identifier LEFT_PAREN INTEGER_VALUE RIGHT_PAREN
     ;
 
 relations
@@ -453,8 +481,12 @@ identifierSeq
     : ident+=errorCapturingIdentifier (COMMA ident+=errorCapturingIdentifier)*
     ;
 
+optScanParams
+    : ATSIGN funcName=identifier LEFT_PAREN (properties=propertyItemList)? RIGHT_PAREN
+    ;
+
 relationPrimary
-    : multipartIdentifier materializedViewName? specifiedPartition?
+    : multipartIdentifier optScanParams? materializedViewName? specifiedPartition?
        tabletList? tableAlias sample? relationHint? lateralView*           #tableName
     | LEFT_PAREN query RIGHT_PAREN tableAlias lateralView*                 #aliasedQuery
     | tvfName=identifier LEFT_PAREN
@@ -506,9 +538,12 @@ columnDefs
     
 columnDef
     : colName=identifier type=dataType
-        KEY? (aggType=aggTypeDef)? ((NOT NULL) | NULL)? (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
-        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL
-            | CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
+        KEY?
+        (aggType=aggTypeDef)?
+        ((NOT)? NULL)?
+        (AUTO_INCREMENT (LEFT_PAREN autoIncInitValue=number RIGHT_PAREN)?)?
+        (DEFAULT (nullValue=NULL | INTEGER_VALUE | stringValue=STRING_LITERAL| CURRENT_DATE
+            | defaultTimestamp=CURRENT_TIMESTAMP (LEFT_PAREN defaultValuePrecision=number RIGHT_PAREN)?))?
         (ON UPDATE CURRENT_TIMESTAMP (LEFT_PAREN onUpdateValuePrecision=number RIGHT_PAREN)?)?
         (COMMENT comment=STRING_LITERAL)?
     ;
@@ -551,7 +586,7 @@ constantSeq
     ;
     
 partitionValueDef
-    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE
+    : INTEGER_VALUE | STRING_LITERAL | MAXVALUE | NULL
     ;
     
 rollupDefs
@@ -563,7 +598,7 @@ rollupDef
     ;
 
 aggTypeDef
-    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION
+    : MAX | MIN | SUM | REPLACE | REPLACE_IF_NOT_NULL | HLL_UNION | BITMAP_UNION | QUANTILE_UNION | GENERIC
     ;
 
 tabletList
@@ -619,7 +654,7 @@ rowConstructorItem
 predicate
     : NOT? kind=BETWEEN lower=valueExpression AND upper=valueExpression
     | NOT? kind=(LIKE | REGEXP | RLIKE) pattern=valueExpression
-    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP) pattern=valueExpression
+    | NOT? kind=(MATCH | MATCH_ANY | MATCH_ALL | MATCH_PHRASE | MATCH_PHRASE_PREFIX | MATCH_REGEXP | MATCH_PHRASE_EDGE) pattern=valueExpression
     | NOT? kind=IN LEFT_PAREN query RIGHT_PAREN
     | NOT? kind=IN LEFT_PAREN expression (COMMA expression)* RIGHT_PAREN
     | IS NOT? kind=NULL
@@ -721,6 +756,7 @@ primaryExpression
     | primaryExpression COLLATE (identifier | STRING_LITERAL | DEFAULT)                        #collate
     ;
 
+
 functionCallExpression
     : functionIdentifier
               LEFT_PAREN (
@@ -821,10 +857,17 @@ unitIdentifier
     : YEAR | MONTH | WEEK | DAY | HOUR | MINUTE | SECOND
     ;
 
+dataTypeWithNullable
+    : dataType ((NOT)? NULL)?
+    ;
+
 dataType
     : complex=ARRAY LT dataType GT                                  #complexDataType
     | complex=MAP LT dataType COMMA dataType GT                     #complexDataType
     | complex=STRUCT LT complexColTypeList GT                       #complexDataType
+    | AGG_STATE LT functionNameIdentifier
+        LEFT_PAREN dataTypes+=dataTypeWithNullable
+        (COMMA dataTypes+=dataTypeWithNullable)* RIGHT_PAREN GT     #aggStateDataType
     | primitiveColType (LEFT_PAREN (INTEGER_VALUE | ASTERISK)
       (COMMA INTEGER_VALUE)* RIGHT_PAREN)?                          #primitiveDataType
     ;
@@ -860,6 +903,7 @@ primitiveColType:
     | type=DECIMALV3
     | type=IPV4
     | type=IPV6
+    | type=VARIANT
     | type=ALL
     ;
 
@@ -951,6 +995,7 @@ nonReserved
     | BUCKETS
     | BUILD
     | BUILTIN
+    | BULK
     | CACHED
     | CALL
     | CATALOG
@@ -962,6 +1007,7 @@ nonReserved
     | CLUSTER
     | CLUSTERS
     | COLLATION
+    | COLLECT
     | COLUMNS
     | COMMENT
     | COMMIT
@@ -1034,6 +1080,7 @@ nonReserved
     | FREE
     | FRONTENDS
     | FUNCTION
+    | GENERIC
     | GLOBAL
     | GRAPH
     | GROUPING

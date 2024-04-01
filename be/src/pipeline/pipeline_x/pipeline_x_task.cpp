@@ -36,6 +36,7 @@
 #include "runtime/thread_context.h"
 #include "util/container_util.hpp"
 #include "util/defer_op.h"
+#include "util/mem_info.h"
 #include "util/runtime_profile.h"
 
 namespace doris {
@@ -60,10 +61,10 @@ PipelineXTask::PipelineXTask(
           _task_idx(task_idx),
           _execution_dep(state->get_query_ctx()->get_execution_dependency()) {
     _pipeline_task_watcher.start();
-    _sink->get_dependency(_downstream_dependency, _shared_states, state->get_query_ctx());
-    for (auto& op : _operators) {
-        _source_dependency.insert(
-                {op->operator_id(), op->get_dependency(state->get_query_ctx(), _shared_states)});
+
+    auto shared_state = _sink->create_shared_state();
+    if (shared_state) {
+        _sink_shared_state = shared_state;
     }
     pipeline->incr_created_tasks();
 }
@@ -82,7 +83,7 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
         LocalSinkStateInfo info {_task_idx,
                                  _task_profile.get(),
                                  local_params.sender_id,
-                                 get_downstream_dependency(),
+                                 get_sink_shared_state().get(),
                                  _le_state_map,
                                  tsink};
         RETURN_IF_ERROR(_sink->setup_local_state(_state, info));
@@ -97,14 +98,8 @@ Status PipelineXTask::prepare(const TPipelineInstanceParams& local_params, const
 
     for (int op_idx = _operators.size() - 1; op_idx >= 0; op_idx--) {
         auto& op = _operators[op_idx];
-        auto& deps = get_upstream_dependency(op->operator_id());
-        LocalStateInfo info {parent_profile,
-                             scan_ranges,
-                             deps,
-                             get_shared_state(op->operator_id()),
-                             _le_state_map,
-                             _task_idx,
-                             _source_dependency[op->operator_id()]};
+        LocalStateInfo info {parent_profile, scan_ranges, get_op_shared_state(op->operator_id()),
+                             _le_state_map, _task_idx};
         RETURN_IF_ERROR(op->setup_local_state(_state, info));
         parent_profile = _state->get_local_state(op->operator_id())->profile();
         query_ctx->register_query_statistics(
@@ -126,9 +121,9 @@ Status PipelineXTask::_extract_dependencies() {
             return result.error();
         }
         auto* local_state = result.value();
-        auto* dep = local_state->dependency();
-        DCHECK(dep != nullptr);
-        _read_dependencies.push_back(dep);
+        const auto& deps = local_state->dependencies();
+        std::copy(deps.begin(), deps.end(),
+                  std::inserter(_read_dependencies, _read_dependencies.end()));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
@@ -136,9 +131,9 @@ Status PipelineXTask::_extract_dependencies() {
     }
     {
         auto* local_state = _state->get_sink_local_state();
-        auto* dep = local_state->dependency();
-        DCHECK(dep != nullptr);
-        _write_dependencies = dep;
+        _write_dependencies = local_state->dependencies();
+        DCHECK(std::all_of(_write_dependencies.begin(), _write_dependencies.end(),
+                           [](auto* dep) { return dep->is_write_dependency(); }));
         auto* fin_dep = local_state->finishdependency();
         if (fin_dep) {
             _finish_dependencies.push_back(fin_dep);
@@ -194,16 +189,25 @@ Status PipelineXTask::_open() {
     _dry_run = _sink->should_dry_run(_state);
     for (auto& o : _operators) {
         auto* local_state = _state->get_local_state(o->operator_id());
-        auto st = local_state->open(_state);
-        if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
-            DCHECK(_filter_dependency);
-            _blocked_dep = _filter_dependency->is_blocked_by(this);
-            if (_blocked_dep) {
-                set_state(PipelineTaskState::BLOCKED_FOR_RF);
+        // Here, it needs to loop twice because it's possible that when "open" happens,
+        // the filter is not ready yet.
+        // However, during the execution of "is_blocked_by," the filter may become ready,
+        // so it needs to be "open" again.
+        for (size_t i = 0; i < 2; i++) {
+            auto st = local_state->open(_state);
+            if (st.is<ErrorCode::PIP_WAIT_FOR_RF>()) {
+                DCHECK(_filter_dependency);
+                _blocked_dep = _filter_dependency->is_blocked_by(this);
+                if (_blocked_dep) {
+                    set_state(PipelineTaskState::BLOCKED_FOR_RF);
+                    RETURN_IF_ERROR(st);
+                } else if (i == 1) {
+                    return Status::InternalError("Unknown RF error, task was blocked by RF twice");
+                }
+            } else {
                 RETURN_IF_ERROR(st);
+                break;
             }
-        } else {
-            RETURN_IF_ERROR(st);
         }
     }
     RETURN_IF_ERROR(_state->get_sink_local_state()->open(_state));
@@ -214,6 +218,7 @@ Status PipelineXTask::_open() {
 Status PipelineXTask::execute(bool* eos) {
     SCOPED_TIMER(_task_profile->total_time_counter());
     SCOPED_TIMER(_exec_timer);
+    SCOPED_ATTACH_TASK(_state);
     int64_t time_spent = 0;
 
     ThreadCpuStopWatch cpu_time_stop_watch;
@@ -230,6 +235,10 @@ Status PipelineXTask::execute(bool* eos) {
         }
     }};
     *eos = false;
+    if (has_dependency()) {
+        set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
+        return Status::OK();
+    }
     // The status must be runnable
     if (!_opened) {
         {
@@ -239,10 +248,6 @@ Status PipelineXTask::execute(bool* eos) {
                 return Status::OK();
             }
             RETURN_IF_ERROR(st);
-        }
-        if (has_dependency()) {
-            set_state(PipelineTaskState::BLOCKED_FOR_DEPENDENCY);
-            return Status::OK();
         }
         if (!source_can_read()) {
             set_state(PipelineTaskState::BLOCKED_FOR_SOURCE);
@@ -273,11 +278,22 @@ Status PipelineXTask::execute(bool* eos) {
         _block->clear_column_data(_root->row_desc().num_materialized_slots());
         auto* block = _block.get();
 
+        auto sink_revocable_mem_size = _sink->revocable_mem_size(_state);
+        if (should_revoke_memory(_state, sink_revocable_mem_size)) {
+            RETURN_IF_ERROR(_sink->revoke_memory(_state));
+            continue;
+        }
+
         // Pull block from operator chain
         if (!_dry_run) {
             SCOPED_TIMER(_get_block_timer);
             _get_block_counter->update(1);
-            RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            try {
+                RETURN_IF_ERROR(_root->get_block_after_projects(_state, block, eos));
+            } catch (const Exception& e) {
+                return Status::InternalError(e.to_string() +
+                                             " task debug string: " + debug_string());
+            }
         } else {
             *eos = true;
         }
@@ -298,14 +314,56 @@ Status PipelineXTask::execute(bool* eos) {
     return status;
 }
 
+bool PipelineXTask::should_revoke_memory(RuntimeState* state, int64_t revocable_mem_bytes) {
+    auto* query_ctx = state->get_query_ctx();
+    auto wg = query_ctx->workload_group();
+    if (!wg) {
+        LOG_ONCE(INFO) << "no workload group for query " << print_id(state->query_id());
+        return false;
+    }
+    bool is_wg_mem_low_water_mark = false;
+    bool is_wg_mem_high_water_mark = false;
+    wg->check_mem_used(&is_wg_mem_low_water_mark, &is_wg_mem_high_water_mark);
+    if (is_wg_mem_high_water_mark) {
+        if (revocable_mem_bytes > 0) {
+            LOG_EVERY_N(INFO, 5) << "revoke memory, hight water mark";
+            return true;
+        }
+        return false;
+    } else if (is_wg_mem_low_water_mark) {
+        int64_t query_weighted_limit = 0;
+        int64_t query_weighted_consumption = 0;
+        query_ctx->get_weighted_mem_info(query_weighted_limit, query_weighted_consumption);
+        if (query_weighted_consumption < query_weighted_limit) {
+            return false;
+        }
+        auto big_memory_operator_num = query_ctx->get_running_big_mem_op_num();
+        DCHECK(big_memory_operator_num >= 0);
+        int64_t mem_limit_of_op;
+        if (0 == big_memory_operator_num) {
+            mem_limit_of_op = (double)query_weighted_limit * 0.8;
+        } else {
+            mem_limit_of_op = query_weighted_limit / big_memory_operator_num;
+        }
+
+        const auto min_revocable_mem_bytes = state->min_revocable_mem();
+        LOG_EVERY_N(INFO, 5) << "revoke memory, low water mark, revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(revocable_mem_bytes)
+                             << ", mem_limit_of_op: " << PrettyPrinter::print_bytes(mem_limit_of_op)
+                             << ", min_revocable_mem_bytes: "
+                             << PrettyPrinter::print_bytes(min_revocable_mem_bytes);
+        return (revocable_mem_bytes > mem_limit_of_op ||
+                revocable_mem_bytes > min_revocable_mem_bytes);
+    } else {
+        return false;
+    }
+}
 void PipelineXTask::finalize() {
     PipelineTask::finalize();
     std::unique_lock<std::mutex> lc(_release_lock);
     _finished = true;
-    std::vector<DependencySPtr> {}.swap(_downstream_dependency);
-    _upstream_dependency.clear();
-    _source_dependency.clear();
-    _shared_states.clear();
+    _sink_shared_state.reset();
+    _op_shared_states.clear();
     _le_state_map.clear();
 }
 
@@ -347,20 +405,21 @@ std::string PipelineXTask::debug_string() {
     fmt::format_to(debug_string_buffer, "InstanceId: {}\n",
                    print_id(_state->fragment_instance_id()));
 
+    auto elapsed = (MonotonicNanos() - _fragment_context->create_time()) / 1000000000.0;
     fmt::format_to(debug_string_buffer,
                    "PipelineTask[this = {}, state = {}, dry run = {}, elapse time "
-                   "= {}ns], block dependency = {}, is running = {}\noperators: ",
-                   (void*)this, get_state_name(_cur_state), _dry_run,
-                   MonotonicNanos() - _fragment_context->create_time(),
-                   _blocked_dep ? _blocked_dep->debug_string() : "NULL", is_running());
+                   "= {}s], block dependency = {}, is running = {}\noperators: ",
+                   (void*)this, get_state_name(_cur_state), _dry_run, elapsed,
+                   _blocked_dep && !_finished ? _blocked_dep->debug_string() : "NULL",
+                   is_running());
     for (size_t i = 0; i < _operators.size(); i++) {
-        fmt::format_to(
-                debug_string_buffer, "\n{}",
-                _opened ? _operators[i]->debug_string(_state, i) : _operators[i]->debug_string(i));
+        fmt::format_to(debug_string_buffer, "\n{}",
+                       _opened && !_finished ? _operators[i]->debug_string(_state, i)
+                                             : _operators[i]->debug_string(i));
     }
     fmt::format_to(debug_string_buffer, "\n{}",
-                   _opened ? _sink->debug_string(_state, _operators.size())
-                           : _sink->debug_string(_operators.size()));
+                   _opened && !_finished ? _sink->debug_string(_state, _operators.size())
+                                         : _sink->debug_string(_operators.size()));
     if (_finished) {
         return fmt::to_string(debug_string_buffer);
     }
@@ -372,8 +431,10 @@ std::string PipelineXTask::debug_string() {
     }
 
     fmt::format_to(debug_string_buffer, "Write Dependency Information: \n");
-    fmt::format_to(debug_string_buffer, "{}. {}\n", i, _write_dependencies->debug_string(1));
-    i++;
+    for (size_t j = 0; j < _write_dependencies.size(); j++, i++) {
+        fmt::format_to(debug_string_buffer, "{}. {}\n", i,
+                       _write_dependencies[j]->debug_string(i + 1));
+    }
 
     if (_filter_dependency) {
         fmt::format_to(debug_string_buffer, "Runtime Filter Dependency Information: \n");
@@ -393,5 +454,4 @@ void PipelineXTask::wake_up() {
     // call by dependency
     static_cast<void>(get_task_queue()->push_back(this));
 }
-
 } // namespace doris::pipeline

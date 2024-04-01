@@ -142,11 +142,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
             hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
                     String.valueOf(Config.hive_metastore_client_timeout_second));
             HadoopUGI.tryKrbLogin(this.getName(), AuthenticationConfig.getKerberosConfig(hiveConf,
-                    AuthenticationConfig.HIVE_KERBEROS_PRINCIPAL,
-                    AuthenticationConfig.HIVE_KERBEROS_KEYTAB));
-            metadataOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
+                    AuthenticationConfig.HADOOP_KERBEROS_PRINCIPAL,
+                    AuthenticationConfig.HADOOP_KERBEROS_KEYTAB));
         }
-
+        metadataOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
     }
 
     @Override

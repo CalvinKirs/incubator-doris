@@ -89,14 +89,25 @@ function start_doris_recycler() {
     fi
 }
 
-function start_doris_fe() {
-    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+function install_java() {
     if ! java -version >/dev/null ||
         [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
         sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
     fi
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
-    export JAVA_HOME
+    # doris master branch use java-17
+    if ! java -version >/dev/null ||
+        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-17-*')" ]]; then
+        sudo apt update && sudo apt install openjdk-17-jdk -y >/dev/null
+    fi
+}
+
+function start_doris_fe() {
+    if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
+    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+        # default to use java-8
+        JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+        export JAVA_HOME
+    fi
     # export JACOCO_COVERAGE_OPT="-javaagent:/usr/local/jacoco/lib/jacocoagent.jar=excludes=org.apache.doris.thrift:org.apache.doris.proto:org.apache.parquet.format:com.aliyun*:com.amazonaws*:org.apache.hadoop.hive.metastore:org.apache.parquet.format,output=file,append=true,destfile=${DORIS_HOME}/fe/fe_cov.exec"
     "${DORIS_HOME}"/fe/bin/start_fe.sh --daemon
 
@@ -117,13 +128,13 @@ function start_doris_fe() {
 
 function start_doris_be() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
-    if ! java -version >/dev/null ||
-        [[ -z "$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*')" ]]; then
-        sudo apt update && sudo apt install openjdk-8-jdk -y >/dev/null
+    if install_java && [[ -z "${JAVA_HOME}" ]]; then
+        # default to use java-8
+        JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
+        export JAVA_HOME
     fi
-    JAVA_HOME="$(find /usr/lib/jvm -maxdepth 1 -type d -name 'java-8-*' | sed -n '1p')"
-    export JAVA_HOME
     ASAN_SYMBOLIZER_PATH="$(command -v llvm-symbolizer)"
+    if [[ -z "${ASAN_SYMBOLIZER_PATH}" ]]; then ASAN_SYMBOLIZER_PATH='/var/local/ldb-toolchain/bin/llvm-symbolizer'; fi
     export ASAN_SYMBOLIZER_PATH
     export ASAN_OPTIONS="symbolize=1:abort_on_error=1:disable_coredump=0:unmap_shadow_on_exit=1:use_sigaltstack=0:detect_leaks=0:fast_unwind_on_malloc=0"
     export TCMALLOC_SAMPLE_PARAMETER=524288
@@ -452,7 +463,9 @@ function set_doris_session_variables_from_file() {
 archive_doris_logs() {
     if [[ ! -d "${DORIS_HOME:-}" ]]; then return 1; fi
     local archive_name="$1"
-    if [[ -z ${archive_name} ]]; then echo "ERROR: archive file name required" && return 1; fi
+    if [[ -z ${archive_name} || ${archive_name} != *".tar.gz" ]]; then
+        echo "USAGE: ${FUNCNAME[0]} xxxx.tar.gz" && return 1
+    fi
     local archive_dir="${archive_name%.tar.gz}"
     rm -rf "${DORIS_HOME:?}/${archive_dir}"
     mkdir -p "${DORIS_HOME}/${archive_dir}"
@@ -467,12 +480,18 @@ archive_doris_logs() {
             if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" regression-test/log/* &>/dev/null; then :; fi
             cp --parents -rf "regression-test/log" "${archive_dir}"/
         fi
+        if [[ -d "${DORIS_HOME}"/../regression-test/conf ]]; then
+            # try to hide ak and sk
+            if sed -i "s/${cos_ak:-}//g;s/${cos_sk:-}//g" ../regression-test/conf/* &>/dev/null; then :; fi
+            mkdir -p "${archive_dir}"/regression-test/conf
+            cp -rf ../regression-test/conf/* "${archive_dir}"/regression-test/conf/
+        fi
         if [[ -f "${DORIS_HOME}"/session_variables ]]; then
             cp --parents -rf "session_variables" "${archive_dir}"/
         fi
         if [[ -d "${DORIS_HOME}"/ms ]]; then
             mkdir -p "${archive_dir}"/foundationdb/log
-            cp --parents -rf /var/log/foundationdb/* "${archive_dir}"/foundationdb/log/
+            cp -rf /var/log/foundationdb/* "${archive_dir}"/foundationdb/log/
             cp --parents -rf "ms/conf" "${archive_dir}"/
             cp --parents -rf "ms/log" "${archive_dir}"/
         fi
@@ -524,11 +543,13 @@ archive_doris_coredump() {
     pids['be']="$(cat "${DORIS_HOME}"/be/bin/be.pid)"
     pids['ms']="$(cat "${DORIS_HOME}"/ms/bin/doris_cloud.pid)"
     pids['recycler']="$(cat "${DORIS_HOME}"/recycler/bin/doris_cloud.pid)"
+    local has_core=false
     for p in "${!pids[@]}"; do
         pid="${pids[${p}]}"
         if [[ -z "${pid}" ]]; then continue; fi
-        if coredump_file=$(find /var/lib/apport/coredump/ -type f -name "core.*${pid}.*") &&
-            wait_coredump_file_ready "${coredump_file}"; then
+        if coredump_file=$(find /var/lib/apport/coredump/ -maxdepth 1 -type f -name "core.*${pid}.*") &&
+            [[ -n "${coredump_file}" ]]; then
+            wait_coredump_file_ready "${coredump_file}"
             file_size=$(stat -c %s "${coredump_file}")
             if ((file_size <= COREDUMP_SIZE_THRESHOLD)); then
                 mkdir -p "${DORIS_HOME}/${archive_dir}/${p}"
@@ -540,14 +561,19 @@ archive_doris_coredump() {
                     mv "${DORIS_HOME}"/recycler/lib/doris_cloud "${DORIS_HOME}/${archive_dir}/${p}"
                 fi
                 mv "${coredump_file}" "${DORIS_HOME}/${archive_dir}/${p}"
+                has_core=true
+            else
+                echo -e "\n\n\n\nERROR: --------------------tail -n 100 ${DORIS_HOME}/be/log/be.out--------------------"
+                tail -n 100 "${DORIS_HOME}"/be/log/be.out
             fi
         fi
     done
 
-    if tar -I pigz \
+    if ${has_core} && tar -I pigz \
         --directory "${DORIS_HOME}" \
         -cf "${DORIS_HOME}/${archive_name}" \
         "${archive_dir}"; then
+        rm -rf "${DORIS_HOME:?}/${archive_dir}"
         echo "${DORIS_HOME}/${archive_name}"
     else
         return 1
@@ -691,5 +717,15 @@ function warehouse_add_be() {
 }
 
 function check_if_need_gcore() {
-    echo
+    exit_flag="$1"
+    if [[ ${exit_flag} == "124" ]]; then # 124 is from command timeout
+        echo "INFO: run regression timeout, gcore to find out reason"
+        be_pid=$(pgrep "doris_be")
+        if [[ -n "${be_pid}" ]]; then
+            kill -ABRT "${be_pid}"
+            sleep 10
+        fi
+    else
+        echo "ERROR: unknown exit_flag ${exit_flag}" && return 1
+    fi
 }

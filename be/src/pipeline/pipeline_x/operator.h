@@ -31,13 +31,10 @@ namespace doris::pipeline {
 struct LocalStateInfo {
     RuntimeProfile* parent_profile = nullptr;
     const std::vector<TScanRangeParams> scan_ranges;
-    std::vector<DependencySPtr>& upstream_dependencies;
     BasicSharedState* shared_state;
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             le_state_map;
     const int task_idx;
-
-    DependencySPtr dependency;
 };
 
 // This struct is used only for initializing local sink state.
@@ -45,7 +42,7 @@ struct LocalSinkStateInfo {
     const int task_idx;
     RuntimeProfile* parent_profile = nullptr;
     const int sender_id;
-    std::vector<DependencySPtr>& dependencies;
+    BasicSharedState* shared_state;
     std::map<int, std::pair<std::shared_ptr<LocalExchangeSharedState>, std::shared_ptr<Dependency>>>
             le_state_map;
     const TDataSink& tsink;
@@ -100,7 +97,7 @@ public:
 
     [[nodiscard]] virtual std::string debug_string(int indentation_level = 0) const = 0;
 
-    virtual Dependency* dependency() { return nullptr; }
+    virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in Scan
     virtual Dependency* finishdependency() { return nullptr; }
@@ -184,8 +181,6 @@ public:
         throw doris::Exception(ErrorCode::NOT_IMPLEMENTED_ERROR, _op_name);
     }
     [[nodiscard]] std::string get_name() const override { return _op_name; }
-    [[nodiscard]] virtual DependencySPtr get_dependency(
-            QueryContext* ctx, std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) = 0;
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution() && !is_source()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
@@ -331,6 +326,10 @@ protected:
     std::string _op_name;
     bool _ignore_data_distribution = false;
     int _parallel_tasks = 0;
+
+    //_keep_origin is used to avoid copying during projection,
+    // currently set to false only in the nestloop join.
+    bool _keep_origin = true;
 };
 
 template <typename LocalStateType>
@@ -348,10 +347,6 @@ public:
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
         return state->get_local_state(operator_id())->template cast<LocalState>();
     }
-
-    DependencySPtr get_dependency(
-            QueryContext* ctx,
-            std::map<int, std::shared_ptr<BasicSharedState>>& shared_states) override;
 };
 
 template <typename SharedStateArg = FakeSharedState>
@@ -372,11 +367,60 @@ public:
 
     [[nodiscard]] std::string debug_string(int indentation_level = 0) const override;
 
-    Dependency* dependency() override { return _dependency; }
+    std::vector<Dependency*> dependencies() const override {
+        return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
+    }
+
+    void inc_running_big_mem_op_num(RuntimeState* state) {
+        if (!_big_mem_op_num_added) {
+            state->get_query_ctx()->inc_running_big_mem_op_num();
+            _big_mem_op_num_added = true;
+        }
+    }
+
+    void dec_running_big_mem_op_num(RuntimeState* state) {
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
+        }
+    }
 
 protected:
     Dependency* _dependency = nullptr;
     SharedStateArg* _shared_state = nullptr;
+
+private:
+    bool _big_mem_op_num_added = false;
+    bool _big_mem_op_num_deced = false;
+};
+
+template <typename SharedStateArg>
+class PipelineXSpillLocalState : public PipelineXLocalState<SharedStateArg> {
+public:
+    using Base = PipelineXLocalState<SharedStateArg>;
+    PipelineXSpillLocalState(RuntimeState* state, OperatorXBase* parent)
+            : PipelineXLocalState<SharedStateArg>(state, parent) {}
+    ~PipelineXSpillLocalState() override = default;
+
+    Status init(RuntimeState* state, LocalStateInfo& info) override {
+        RETURN_IF_ERROR(PipelineXLocalState<SharedStateArg>::init(state, info));
+        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
+        _spill_recover_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillRecoverTime", "Spill", 1);
+        _spill_read_data_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillReadDataTime", "Spill", 1);
+        _spill_deserialize_time =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillDeserializeTime", "Spill", 1);
+        _spill_read_bytes = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillReadDataSize",
+                                                         TUnit::BYTES, "Spill", 1);
+        return Status::OK();
+    }
+
+    RuntimeProfile::Counter* _spill_counters = nullptr;
+    RuntimeProfile::Counter* _spill_recover_time;
+    RuntimeProfile::Counter* _spill_read_data_time;
+    RuntimeProfile::Counter* _spill_deserialize_time;
+    RuntimeProfile::Counter* _spill_read_bytes;
 };
 
 class DataSinkOperatorXBase;
@@ -422,7 +466,7 @@ public:
 
     RuntimeProfile::Counter* rows_input_counter() { return _rows_input_counter; }
     RuntimeProfile::Counter* exec_time_counter() { return _exec_timer; }
-    virtual Dependency* dependency() { return nullptr; }
+    virtual std::vector<Dependency*> dependencies() const { return {nullptr}; }
 
     // override in exchange sink , AsyncWriterSink
     virtual Dependency* finishdependency() { return nullptr; }
@@ -513,9 +557,7 @@ public:
         return reinterpret_cast<const TARGET&>(*this);
     }
 
-    virtual void get_dependency(std::vector<DependencySPtr>& dependency,
-                                std::map<int, std::shared_ptr<BasicSharedState>>& shared_states,
-                                QueryContext* ctx) = 0;
+    [[nodiscard]] virtual std::shared_ptr<BasicSharedState> create_shared_state() const = 0;
     [[nodiscard]] virtual DataDistribution required_data_distribution() const {
         return _child_x && _child_x->ignore_data_distribution()
                        ? DataDistribution(ExchangeType::PASSTHROUGH)
@@ -612,9 +654,7 @@ public:
     ~DataSinkOperatorX() override = default;
 
     Status setup_local_state(RuntimeState* state, LocalSinkStateInfo& info) override;
-    void get_dependency(std::vector<DependencySPtr>& dependency,
-                        std::map<int, std::shared_ptr<BasicSharedState>>& shared_states,
-                        QueryContext* ctx) override;
+    std::shared_ptr<BasicSharedState> create_shared_state() const override;
 
     using LocalState = LocalStateType;
     [[nodiscard]] LocalState& get_local_state(RuntimeState* state) const {
@@ -640,11 +680,63 @@ public:
 
     virtual std::string name_suffix() { return " (id=" + std::to_string(_parent->node_id()) + ")"; }
 
-    Dependency* dependency() override { return _dependency; }
+    std::vector<Dependency*> dependencies() const override {
+        return _dependency ? std::vector<Dependency*> {_dependency} : std::vector<Dependency*> {};
+    }
+
+    void inc_running_big_mem_op_num(RuntimeState* state) {
+        if (!_big_mem_op_num_added) {
+            state->get_query_ctx()->inc_running_big_mem_op_num();
+            _big_mem_op_num_added = true;
+        }
+    }
+
+    void dec_running_big_mem_op_num(RuntimeState* state) {
+        if (_big_mem_op_num_added && !_big_mem_op_num_deced) {
+            state->get_query_ctx()->dec_running_big_mem_op_num();
+            _big_mem_op_num_deced = true;
+        }
+    }
 
 protected:
     Dependency* _dependency = nullptr;
     SharedStateType* _shared_state = nullptr;
+
+private:
+    bool _big_mem_op_num_added = false;
+    bool _big_mem_op_num_deced = false;
+};
+
+template <typename SharedStateArg>
+class PipelineXSpillSinkLocalState : public PipelineXSinkLocalState<SharedStateArg> {
+public:
+    using Base = PipelineXSinkLocalState<SharedStateArg>;
+    PipelineXSpillSinkLocalState(DataSinkOperatorXBase* parent, RuntimeState* state)
+            : Base(parent, state) {}
+    ~PipelineXSpillSinkLocalState() override = default;
+
+    Status init(RuntimeState* state, LocalSinkStateInfo& info) override {
+        RETURN_IF_ERROR(Base::init(state, info));
+
+        _spill_counters = ADD_LABEL_COUNTER_WITH_LEVEL(Base::profile(), "Spill", 1);
+        _spill_timer = ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillTime", "Spill", 1);
+        _spill_serialize_block_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillSerializeBlockTime", "Spill", 1);
+        _spill_write_disk_timer =
+                ADD_CHILD_TIMER_WITH_LEVEL(Base::profile(), "SpillWriteDiskTime", "Spill", 1);
+        _spill_data_size = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteDataSize",
+                                                        TUnit::BYTES, "Spill", 1);
+        _spill_block_count = ADD_CHILD_COUNTER_WITH_LEVEL(Base::profile(), "SpillWriteBlockCount",
+                                                          TUnit::UNIT, "Spill", 1);
+        return Status::OK();
+    }
+
+    RuntimeProfile::Counter* _spill_counters = nullptr;
+    RuntimeProfile::Counter* _spill_timer = nullptr;
+    RuntimeProfile::Counter* _spill_serialize_block_timer = nullptr;
+    RuntimeProfile::Counter* _spill_write_disk_timer = nullptr;
+    RuntimeProfile::Counter* _spill_data_size = nullptr;
+    RuntimeProfile::Counter* _spill_block_count = nullptr;
 };
 
 /**
@@ -681,7 +773,8 @@ public:
 
     using OperatorX<LocalStateType>::get_local_state;
 
-    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block, bool* eos) final;
+    [[nodiscard]] Status get_block(RuntimeState* state, vectorized::Block* block,
+                                   bool* eos) override;
 
     [[nodiscard]] virtual Status pull(RuntimeState* state, vectorized::Block* block,
                                       bool* eos) const = 0;
@@ -717,7 +810,9 @@ public:
 
     Status sink(RuntimeState* state, vectorized::Block* block, bool eos);
 
-    Dependency* dependency() override { return _async_writer_dependency.get(); }
+    std::vector<Dependency*> dependencies() const override {
+        return {_async_writer_dependency.get()};
+    }
     Status close(RuntimeState* state, Status exec_status) override;
 
     Dependency* finishdependency() override { return _finish_dependency.get(); }

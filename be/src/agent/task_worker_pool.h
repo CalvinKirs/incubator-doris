@@ -178,6 +178,10 @@ void report_task_callback(const TMasterInfo& master_info);
 
 void report_disk_callback(StorageEngine& engine, const TMasterInfo& master_info);
 
+void report_disk_callback(CloudStorageEngine& engine, const TMasterInfo& master_info);
+
 void report_tablet_callback(StorageEngine& engine, const TMasterInfo& master_info);
+
+void calc_delete_bimtap_callback(CloudStorageEngine& engine, const TAgentTaskRequest& req);
 
 } // namespace doris

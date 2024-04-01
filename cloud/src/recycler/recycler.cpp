@@ -49,6 +49,8 @@
 
 namespace doris::cloud {
 
+using namespace std::chrono;
+
 // return 0 for success get a key, 1 for key not found, negative for error
 [[maybe_unused]] static int txn_get(TxnKv* txn_kv, std::string_view key, std::string& val) {
     std::unique_ptr<Transaction> txn;
@@ -143,6 +145,23 @@ static int txn_remove(TxnKv* txn_kv, std::vector<std::string> keys) {
     }
 }
 
+static inline void check_recycle_task(const std::string& instance_id, const std::string& task_name,
+                                      int64_t num_scanned, int64_t num_recycled,
+                                      int64_t start_time) {
+    if ((num_scanned % 10000) == 0 && (num_scanned > 0)) [[unlikely]] {
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
+        if (cost > config::recycle_task_threshold_seconds) {
+            LOG_INFO("recycle task cost too much time cost={}s", cost)
+                    .tag("instance_id", instance_id)
+                    .tag("task", task_name)
+                    .tag("num_scanned", num_scanned)
+                    .tag("num_recycled", num_recycled);
+        }
+    }
+    return;
+}
+
 Recycler::Recycler(std::shared_ptr<TxnKv> txn_kv) : txn_kv_(std::move(txn_kv)) {
     ip_port_ = std::string(butil::my_ip_cstr()) + ":" + std::to_string(config::brpc_listen_port);
 }
@@ -221,7 +240,6 @@ void Recycler::recycle_callback() {
         }
         if (stopped()) return;
         LOG_INFO("begin to recycle instance").tag("instance_id", instance_id);
-        using namespace std::chrono;
         auto ctime_ms = duration_cast<milliseconds>(system_clock::now().time_since_epoch()).count();
         ret = instance_recycler->do_recycle();
         // If instance recycler has been aborted, don't finish this job
@@ -268,6 +286,23 @@ void Recycler::lease_recycle_jobs() {
     }
 }
 
+void Recycler::check_recycle_tasks() {
+    while (!stopped()) {
+        std::unordered_map<std::string, std::shared_ptr<InstanceRecycler>> recycling_instance_map;
+        {
+            std::lock_guard lock(mtx_);
+            recycling_instance_map = recycling_instance_map_;
+        }
+        for (auto& entry : recycling_instance_map) {
+            entry.second->check_recycle_tasks();
+        }
+
+        std::unique_lock lock(mtx_);
+        notifier_.wait_for(lock, std::chrono::seconds(config::check_recycle_task_interval_seconds),
+                           [&]() { return stopped(); });
+    }
+}
+
 int Recycler::start(brpc::Server* server) {
     instance_filter_.reset(config::recycle_whitelist, config::recycle_blacklist);
 
@@ -298,6 +333,7 @@ int Recycler::start(brpc::Server* server) {
     }
 
     workers_.push_back(std::thread(std::mem_fn(&Recycler::lease_recycle_jobs), this));
+    workers_.push_back(std::thread(std::mem_fn(&Recycler::check_recycle_tasks), this));
     return 0;
 }
 
@@ -470,7 +506,6 @@ int InstanceRecycler::recycle_deleted_instance() {
     LOG_INFO("begin to recycle deleted instance").tag("instance_id", instance_id_);
 
     int ret = 0;
-    using namespace std::chrono;
     auto start_time = steady_clock::now();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
@@ -492,9 +527,8 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string start_txn_key = txn_key_prefix(instance_id_);
     std::string end_txn_key = txn_key_prefix(instance_id_ + '\x00');
     txn->remove(start_txn_key, end_txn_key);
-    // 0:instance_id  1:db_id  2:tbl_id  3:partition_id
-    std::string start_version_key = version_key({instance_id_, 0, 0, 0});
-    std::string end_version_key = version_key({instance_id_, INT64_MAX, 0, 0});
+    std::string start_version_key = version_key_prefix(instance_id_);
+    std::string end_version_key = version_key_prefix(instance_id_ + '\x00');
     txn->remove(start_version_key, end_version_key);
     std::string start_meta_key = meta_key_prefix(instance_id_);
     std::string end_meta_key = meta_key_prefix(instance_id_ + '\x00');
@@ -513,6 +547,11 @@ int InstanceRecycler::recycle_deleted_instance() {
     std::string start_job_tablet_key = job_tablet_key({instance_id_, 0, 0, 0, 0});
     std::string end_job_tablet_key = job_tablet_key({instance_id_, INT64_MAX, 0, 0, 0});
     txn->remove(start_job_tablet_key, end_job_tablet_key);
+    StorageVaultKeyInfo key_info0 {instance_id_, ""};
+    StorageVaultKeyInfo key_info1 {instance_id_, "\xff"};
+    std::string start_vault_key = storage_vault_key(key_info0);
+    std::string end_vault_key = storage_vault_key(key_info1);
+    txn->remove(start_vault_key, end_vault_key);
     err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete all kv, instance_id=" << instance_id_ << ", err=" << err;
@@ -555,6 +594,7 @@ int InstanceRecycler::recycle_deleted_instance() {
 }
 
 int InstanceRecycler::recycle_indexes() {
+    const std::string task_name = "recycle_indexes";
     int num_scanned = 0;
     int num_expired = 0;
     int num_recycled = 0;
@@ -568,11 +608,13 @@ int InstanceRecycler::recycle_indexes() {
 
     LOG_INFO("begin to recycle indexes").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("recycle indexes finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -654,6 +696,7 @@ int InstanceRecycler::recycle_indexes() {
             return -1;
         }
         ++num_recycled;
+        check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);
         index_keys.push_back(k);
         return 0;
     };
@@ -673,6 +716,7 @@ int InstanceRecycler::recycle_indexes() {
 }
 
 int InstanceRecycler::recycle_partitions() {
+    const std::string task_name = "recycle_partitions";
     int num_scanned = 0;
     int num_expired = 0;
     int num_recycled = 0;
@@ -686,11 +730,13 @@ int InstanceRecycler::recycle_partitions() {
 
     LOG_INFO("begin to recycle partitions").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("recycle partitions finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -711,7 +757,7 @@ int InstanceRecycler::recycle_partitions() {
 
     // Elements in `partition_keys` has the same lifetime as `it` in `scan_and_recycle`
     std::vector<std::string_view> partition_keys;
-    std::vector<std::string> version_keys;
+    std::vector<std::string> partition_version_keys;
     auto recycle_func = [&, this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         RecyclePartitionPB part_pb;
@@ -781,20 +827,21 @@ int InstanceRecycler::recycle_partitions() {
         }
         if (ret == 0) {
             ++num_recycled;
+            check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);
             partition_keys.push_back(k);
             if (part_pb.db_id() > 0) {
-                version_keys.push_back(version_key(
+                partition_version_keys.push_back(partition_version_key(
                         {instance_id_, part_pb.db_id(), part_pb.table_id(), partition_id}));
             }
         }
         return ret;
     };
 
-    auto loop_done = [&partition_keys, &version_keys, this]() -> int {
+    auto loop_done = [&partition_keys, &partition_version_keys, this]() -> int {
         if (partition_keys.empty()) return 0;
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
             partition_keys.clear();
-            version_keys.clear();
+            partition_version_keys.clear();
         });
         std::unique_ptr<Transaction> txn;
         TxnErrorCode err = txn_kv_->create_txn(&txn);
@@ -805,7 +852,7 @@ int InstanceRecycler::recycle_partitions() {
         for (auto& k : partition_keys) {
             txn->remove(k);
         }
-        for (auto& k : version_keys) {
+        for (auto& k : partition_version_keys) {
             txn->remove(k);
         }
         err = txn->commit();
@@ -824,25 +871,24 @@ int InstanceRecycler::recycle_versions() {
     int num_scanned = 0;
     int num_recycled = 0;
 
-    LOG_INFO("begin to recycle partition versions").tag("instance_id", instance_id_);
+    LOG_INFO("begin to recycle table and partition versions").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
     auto start_time = steady_clock::now();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
         auto cost = duration<float>(steady_clock::now() - start_time).count();
-        LOG_INFO("recycle partition versions finished, cost={}s", cost)
+        LOG_INFO("recycle table and partition versions finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
                 .tag("num_recycled", num_recycled);
     });
 
-    auto version_key_begin = version_key({instance_id_, 0, 0, 0});
-    auto version_key_end = version_key({instance_id_, INT64_MAX, 0, 0});
+    auto version_key_begin = partition_version_key({instance_id_, 0, 0, 0});
+    auto version_key_end = partition_version_key({instance_id_, INT64_MAX, 0, 0});
     int64_t last_scanned_table_id = 0;
     bool is_recycled = false; // Is last scanned kv recycled
     auto recycle_func = [&num_scanned, &num_recycled, &last_scanned_table_id, &is_recycled, this](
-                                std::string_view k, std::string_view) {
+            std::string_view k, std::string_view) {
         ++num_scanned;
         auto k1 = k;
         k1.remove_prefix(1);
@@ -869,16 +915,20 @@ int InstanceRecycler::recycle_versions() {
         if (err != TxnErrorCode::TXN_OK) {
             return -1;
         }
-        if (iter->has_next()) { // Table is useful, should not recycle partiton versions
+        if (iter->has_next()) { // Table is useful, should not recycle table and partition versions
             return 0;
         }
-        // Remove all version kvs of this table
         auto db_id = std::get<int64_t>(std::get<0>(out[3]));
-        auto table_version_key_begin = version_key({instance_id_, db_id, table_id, 0});
-        auto table_version_key_end = version_key({instance_id_, db_id, table_id, INT64_MAX});
-        txn->remove(table_version_key_begin, table_version_key_end);
-        LOG(WARNING) << "remove version kv, begin=" << hex(table_version_key_begin)
-                     << " end=" << hex(table_version_key_end);
+        // 1. Remove all partition version kvs of this table
+        auto partition_version_key_begin = partition_version_key({instance_id_, db_id, table_id, 0});
+        auto partition_version_key_end = partition_version_key({instance_id_, db_id, table_id, INT64_MAX});
+        txn->remove(partition_version_key_begin, partition_version_key_end);
+        LOG(WARNING) << "remove partition version kv, begin=" << hex(partition_version_key_begin)
+                     << " end=" << hex(partition_version_key_end);
+        // 2. Remove the table version kv of this table
+        auto tbl_version_key = table_version_key({instance_id_, db_id, table_id});
+        txn->remove(tbl_version_key);
+        LOG(WARNING) << "remove table version kv " << hex(tbl_version_key);
         err = txn->commit();
         if (err != TxnErrorCode::TXN_OK) {
             return -1;
@@ -923,7 +973,6 @@ int InstanceRecycler::recycle_tablets(int64_t table_id, int64_t index_id, int64_
             .tag("index_id", index_id)
             .tag("partition_id", partition_id);
 
-    using namespace std::chrono;
     auto start_time = steady_clock::now();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
@@ -1194,7 +1243,6 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
             .tag("instance_id", instance_id_)
             .tag("tablet_id", tablet_id);
 
-    using namespace std::chrono;
     auto start_time = steady_clock::now();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
@@ -1226,6 +1274,11 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
     std::string delete_bitmap_end = meta_delete_bitmap_key({instance_id_, tablet_id + 1, "", 0, 0});
     txn->remove(delete_bitmap_start, delete_bitmap_end);
 
+    // remove rowset schema
+    std::string rowset_schema_start = meta_rowset_schema_key({instance_id_, tablet_id, ""});
+    std::string rowset_schema_end = meta_rowset_schema_key({instance_id_, tablet_id + 1, ""});
+    txn->remove(rowset_schema_start, rowset_schema_end);
+
     TxnErrorCode err = txn->commit();
     if (err != TxnErrorCode::TXN_OK) {
         LOG(WARNING) << "failed to delete rowset kv of tablet " << tablet_id << ", err=" << err;
@@ -1251,6 +1304,7 @@ int InstanceRecycler::recycle_tablet(int64_t tablet_id) {
 }
 
 int InstanceRecycler::recycle_rowsets() {
+    const std::string task_name = "recycle_rowsets";
     int num_scanned = 0;
     int num_expired = 0;
     int num_prepare = 0;
@@ -1267,11 +1321,13 @@ int InstanceRecycler::recycle_rowsets() {
 
     LOG_INFO("begin to recycle rowsets").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("recycle rowsets finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -1283,6 +1339,7 @@ int InstanceRecycler::recycle_rowsets() {
     });
 
     std::vector<std::string> rowset_keys;
+    std::vector<std::string> rowset_schema_keys;
     std::vector<doris::RowsetMetaCloudPB> rowsets;
 
     // Store keys of rowset recycled by background workers
@@ -1314,6 +1371,8 @@ int InstanceRecycler::recycle_rowsets() {
                                      << instance_id_;
                     } else {
                         num_recycled.fetch_add(keys.size(), std::memory_order_relaxed);
+                        check_recycle_task(instance_id_, "recycle_rowsets", num_scanned,
+                                           num_recycled, start_time);
                     }
                 },
                 0);
@@ -1408,6 +1467,8 @@ int InstanceRecycler::recycle_rowsets() {
                 return -1;
             }
         } else {
+            auto schema_key = meta_rowset_schema_key({instance_id_, rowset_meta->tablet_id(), rowset_meta->rowset_id_v2()});
+            rowset_schema_keys.push_back(std::move(schema_key));
             rowset_keys.push_back(std::string(k));
             if (rowset_meta->num_segments() > 0) { // Skip empty rowset
                 rowsets.push_back(std::move(*rowset_meta));
@@ -1418,13 +1479,20 @@ int InstanceRecycler::recycle_rowsets() {
 
     auto loop_done = [&]() -> int {
         std::vector<std::string> rowset_keys_to_delete;
+        std::vector<std::string> rowset_schema_keys_to_delete;
         std::vector<doris::RowsetMetaCloudPB> rowsets_to_delete;
         rowset_keys_to_delete.swap(rowset_keys);
+        rowset_schema_keys_to_delete.swap(rowset_schema_keys);
         rowsets_to_delete.swap(rowsets);
         worker_pool->submit([&, rowset_keys_to_delete = std::move(rowset_keys_to_delete),
-                             rowsets_to_delete = std::move(rowsets_to_delete)]() {
+                             rowsets_to_delete = std::move(rowsets_to_delete),
+                             rowset_schema_keys_to_delete = std::move(rowset_schema_keys_to_delete)]() {
             if (delete_rowset_data(rowsets_to_delete) != 0) {
                 LOG(WARNING) << "failed to delete rowset data, instance_id=" << instance_id_;
+                return;
+            }
+            if (txn_remove(txn_kv_.get(), rowset_schema_keys_to_delete) != 0) {
+                LOG(WARNING) << "failed to delete recycle rowset kv, instance_id=" << instance_id_;
                 return;
             }
             if (txn_remove(txn_kv_.get(), rowset_keys_to_delete) != 0) {
@@ -1452,6 +1520,7 @@ int InstanceRecycler::recycle_rowsets() {
 }
 
 int InstanceRecycler::recycle_tmp_rowsets() {
+    const std::string task_name = "recycle_tmp_rowsets";
     int num_scanned = 0;
     int num_expired = 0;
     int num_recycled = 0;
@@ -1467,11 +1536,13 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 
     LOG_INFO("begin to recycle tmp rowsets").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("recycle tmp rowsets finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -1483,10 +1554,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
 
     // Elements in `tmp_rowset_keys` has the same lifetime as `it`
     std::vector<std::string_view> tmp_rowset_keys;
+    std::vector<std::string> tmp_rowset_schema_keys;
     std::vector<doris::RowsetMetaCloudPB> tmp_rowsets;
 
     auto handle_rowset_kv = [&num_scanned, &num_expired, &tmp_rowset_keys, &tmp_rowsets,
-                             &expired_rowset_size, &total_rowset_size,
+                             &expired_rowset_size, &total_rowset_size, &tmp_rowset_schema_keys,
                              this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         total_rowset_size += v.size();
@@ -1516,6 +1588,11 @@ int InstanceRecycler::recycle_tmp_rowsets() {
             tmp_rowset_keys.push_back(k);
             return 0;
         }
+        if (rowset.has_variant_type_in_schema()) {
+            auto schema_key = meta_rowset_schema_key({instance_id_,
+                    rowset.tablet_id(), rowset.rowset_id_v2()});
+            tmp_rowset_schema_keys.push_back(std::move(schema_key)); 
+        }
         // TODO(plat1ko): check rowset not referenced
         LOG(INFO) << "delete rowset data, instance_id=" << instance_id_
                   << " tablet_id=" << rowset.tablet_id() << " rowset_id=" << rowset.rowset_id_v2()
@@ -1529,13 +1606,18 @@ int InstanceRecycler::recycle_tmp_rowsets() {
         return 0;
     };
 
-    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets, &num_recycled, this]() -> int {
+    auto loop_done = [&tmp_rowset_keys, &tmp_rowsets,
+            &num_recycled, &tmp_rowset_schema_keys, this]() -> int {
         std::unique_ptr<int, std::function<void(int*)>> defer((int*)0x01, [&](int*) {
             tmp_rowset_keys.clear();
             tmp_rowsets.clear();
         });
         if (delete_rowset_data(tmp_rowsets) != 0) {
             LOG(WARNING) << "failed to delete tmp rowset data, instance_id=" << instance_id_;
+            return -1;
+        }
+        if (txn_remove(txn_kv_.get(), tmp_rowset_schema_keys) != 0) {
+            LOG(WARNING) << "failed to delete tmp rowset schema kv, instance_id=" << instance_id_;
             return -1;
         }
         if (txn_remove(txn_kv_.get(), tmp_rowset_keys) != 0) {
@@ -1585,6 +1667,7 @@ int InstanceRecycler::scan_and_recycle(
 }
 
 int InstanceRecycler::abort_timeout_txn() {
+    const std::string task_name = "abort_timeout_txn";
     int num_scanned = 0;
     int num_timeout = 0;
     int num_abort = 0;
@@ -1598,11 +1681,13 @@ int InstanceRecycler::abort_timeout_txn() {
 
     LOG_INFO("begin to abort timeout txn").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("end to abort timeout txn, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -1700,6 +1785,7 @@ int InstanceRecycler::abort_timeout_txn() {
 }
 
 int InstanceRecycler::recycle_expired_txn_label() {
+    const std::string task_name = "recycle_expired_txn_label";
     int num_scanned = 0;
     int num_expired = 0;
     int num_recycled = 0;
@@ -1713,11 +1799,12 @@ int InstanceRecycler::recycle_expired_txn_label() {
 
     LOG_INFO("begin to recycle expire txn").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
-
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("end to recycle expired txn, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -1939,14 +2026,17 @@ int InstanceRecycler::recycle_copy_jobs() {
     int num_recycled = 0;
     // Used for INTERNAL stage's copy jobs to tag each batch for log trace
     uint64_t batch_count = 0;
+    const std::string task_name = "recycle_copy_jobs";
 
     LOG_INFO("begin to recycle copy jobs").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("recycle copy jobs finished, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -1962,8 +2052,9 @@ int InstanceRecycler::recycle_copy_jobs() {
     copy_job_key(key_info0, &key0);
     copy_job_key(key_info1, &key1);
     std::unordered_map<std::string, std::shared_ptr<BatchObjStoreAccessor>> stage_accessor_map;
-    auto recycle_func = [&num_scanned, &num_finished, &num_expired, &num_recycled, &batch_count,
-                         &stage_accessor_map, this](std::string_view k, std::string_view v) -> int {
+    auto recycle_func = [&start_time, &num_scanned, &num_finished, &num_expired, &num_recycled,
+                         &batch_count, &stage_accessor_map, &task_name,
+                         this](std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         CopyJobPB copy_job;
         if (!copy_job.ParseFromArray(v.data(), v.size())) {
@@ -2068,6 +2159,7 @@ int InstanceRecycler::recycle_copy_jobs() {
         }
 
         ++num_recycled;
+        check_recycle_task(instance_id_, task_name, num_scanned, num_recycled, start_time);
         return 0;
     };
 
@@ -2191,14 +2283,17 @@ int InstanceRecycler::init_copy_job_accessor(const std::string& stage_id,
 int InstanceRecycler::recycle_stage() {
     int num_scanned = 0;
     int num_recycled = 0;
+    const std::string task_name = "recycle_stage";
 
     LOG_INFO("begin to recycle stage").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    register_recycle_task(task_name, start_time);
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        unregister_recycle_task(task_name);
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("recycle stage, cost={}s", cost)
                 .tag("instance_id", instance_id_)
                 .tag("num_scanned", num_scanned)
@@ -2214,7 +2309,7 @@ int InstanceRecycler::recycle_stage() {
 
     // Elements in `tmp_rowset_keys` has the same lifetime as `it`
     std::vector<std::string_view> stage_keys;
-    auto recycle_func = [&num_scanned, &num_recycled, &stage_keys, this](
+    auto recycle_func = [&start_time, &num_scanned, &num_recycled, &stage_keys, this](
                                 std::string_view k, std::string_view v) -> int {
         ++num_scanned;
         RecycleStagePB recycle_stage;
@@ -2273,6 +2368,7 @@ int InstanceRecycler::recycle_stage() {
             return -1;
         }
         ++num_recycled;
+        check_recycle_task(instance_id_, "recycle_stage", num_scanned, num_recycled, start_time);
         stage_keys.push_back(k);
         return 0;
     };
@@ -2294,11 +2390,11 @@ int InstanceRecycler::recycle_stage() {
 int InstanceRecycler::recycle_expired_stage_objects() {
     LOG_INFO("begin to recycle expired stage objects").tag("instance_id", instance_id_);
 
-    using namespace std::chrono;
-    auto start_time = steady_clock::now();
+    int64_t start_time = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
 
     std::unique_ptr<int, std::function<void(int*)>> defer_log_statistics((int*)0x01, [&](int*) {
-        auto cost = duration<float>(steady_clock::now() - start_time).count();
+        int64_t cost =
+                duration_cast<seconds>(steady_clock::now().time_since_epoch()).count() - start_time;
         LOG_INFO("recycle expired stage objects, cost={}s", cost).tag("instance_id", instance_id_);
     });
     int ret = 0;
@@ -2358,6 +2454,39 @@ int InstanceRecycler::recycle_expired_stage_objects() {
         }
     }
     return ret;
+}
+
+void InstanceRecycler::register_recycle_task(const std::string& task_name, int64_t start_time) {
+    std::lock_guard lock(recycle_tasks_mutex);
+    running_recycle_tasks[task_name] = start_time;
+}
+
+void InstanceRecycler::unregister_recycle_task(const std::string& task_name) {
+    std::lock_guard lock(recycle_tasks_mutex);
+    DCHECK(running_recycle_tasks[task_name] > 0);
+    running_recycle_tasks.erase(task_name);
+}
+
+bool InstanceRecycler::check_recycle_tasks() {
+    std::map<std::string, int64_t> tmp_running_recycle_tasks;
+    {
+        std::lock_guard lock(recycle_tasks_mutex);
+        tmp_running_recycle_tasks = running_recycle_tasks;
+    }
+
+    bool found = false;
+    int64_t now = duration_cast<seconds>(steady_clock::now().time_since_epoch()).count();
+    for (auto& [task_name, start_time] : tmp_running_recycle_tasks) {
+        int64_t cost = now - start_time;
+        if (cost > config::recycle_task_threshold_seconds) [[unlikely]] {
+            LOG_INFO("recycle task cost too much time cost={}s", cost)
+                    .tag("instance_id", instance_id_)
+                    .tag("task", task_name);
+            found = true;
+        }
+    }
+
+    return found;
 }
 
 } // namespace doris::cloud

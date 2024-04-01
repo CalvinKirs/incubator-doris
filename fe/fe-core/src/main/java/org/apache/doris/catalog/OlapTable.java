@@ -37,6 +37,8 @@ import org.apache.doris.catalog.Tablet.TabletStatus;
 import org.apache.doris.clone.TabletSchedCtx;
 import org.apache.doris.clone.TabletScheduler;
 import org.apache.doris.cloud.catalog.CloudPartition;
+import org.apache.doris.cloud.proto.Cloud;
+import org.apache.doris.cloud.qe.SnapshotProxy;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
@@ -46,6 +48,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.io.DeepCopy;
 import org.apache.doris.common.io.Text;
+import org.apache.doris.common.profile.SummaryProfile;
 import org.apache.doris.common.util.PropertyAnalyzer;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.mtmv.MTMVRelatedTableIf;
@@ -53,7 +56,9 @@ import org.apache.doris.mtmv.MTMVSnapshotIf;
 import org.apache.doris.mtmv.MTMVVersionSnapshot;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.qe.OriginStatement;
+import org.apache.doris.qe.StmtExecutor;
 import org.apache.doris.resource.Tag;
+import org.apache.doris.rpc.RpcException;
 import org.apache.doris.statistics.AnalysisInfo;
 import org.apache.doris.statistics.AnalysisInfo.AnalysisType;
 import org.apache.doris.statistics.BaseAnalysisTask;
@@ -66,6 +71,7 @@ import org.apache.doris.system.SystemInfoService;
 import org.apache.doris.thrift.TColumn;
 import org.apache.doris.thrift.TCompressionType;
 import org.apache.doris.thrift.TFetchOption;
+import org.apache.doris.thrift.TInvertedIndexStorageFormat;
 import org.apache.doris.thrift.TOlapTable;
 import org.apache.doris.thrift.TPrimitiveType;
 import org.apache.doris.thrift.TSortType;
@@ -239,6 +245,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     public void setIsBeingSynced(boolean isBeingSynced) {
         getOrCreatTableProperty().modifyTableProperties(PropertyAnalyzer.PROPERTIES_IS_BEING_SYNCED,
                 String.valueOf(isBeingSynced));
+    }
+
+    public void setStorageVault(String storageVaultName) {
+        if (storageVaultName == null && storageVaultName.isEmpty()) {
+            return;
+        }
+        getOrCreatTableProperty().setStorageVaultName(storageVaultName);
     }
 
     public boolean isBeingSynced() {
@@ -468,6 +481,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    public List<Long> getAllTabletIds() {
+        List<Long> tabletIds = new ArrayList<>();
+        try {
+            rwLock.readLock().lock();
+            for (Partition partition : getPartitions()) {
+                for (MaterializedIndex index : partition.getMaterializedIndices(IndexExtState.ALL)) {
+                    tabletIds.addAll(index.getTablets().stream()
+                                                        .map(tablet -> tablet.getId())
+                                                        .collect(Collectors.toList()));
+                }
+            }
+        } catch (Exception e) {
+            LOG.warn("get all tablet ids failed {}", e.getMessage());
+        } finally {
+            rwLock.readLock().unlock();
+        }
+        return tabletIds;
+    }
+
     public Map<Long, MaterializedIndexMeta> getVisibleIndexIdToMeta() {
         Map<Long, MaterializedIndexMeta> visibleMVs = Maps.newHashMap();
         List<MaterializedIndex> mvs = getVisibleIndex();
@@ -496,12 +528,18 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    /**
+     * This function is for statistics collection only. To get all the index ids that contains the given columnName.
+     * For base index, return -1 as its id, this is for compatibility with older version of column stats.
+     * @param columnName
+     * @return index id list that contains the given columnName.
+     */
     public List<Long> getMvColumnIndexIds(String columnName) {
         List<Long> ids = Lists.newArrayList();
         for (MaterializedIndexMeta meta : getVisibleIndexIdToMeta().values()) {
             Column target = meta.getColumnByDefineName(columnName);
             if (target != null) {
-                ids.add(meta.getIndexId());
+                ids.add(meta.getIndexId() == baseIndexId ? -1 : meta.getIndexId());
             }
         }
         return ids;
@@ -632,9 +670,10 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
                     // replicas
                     try {
-                        Map<Tag, List<Long>> tag2beIds =
+                        Pair<Map<Tag, List<Long>>, TStorageMedium> tag2beIdsAndMedium =
                                 Env.getCurrentSystemInfo().selectBackendIdsForReplicaCreation(
                                         replicaAlloc, nextIndexs, null, false, false);
+                        Map<Tag, List<Long>> tag2beIds = tag2beIdsAndMedium.first;
                         for (Map.Entry<Tag, List<Long>> entry3 : tag2beIds.entrySet()) {
                             for (Long beId : entry3.getValue()) {
                                 long newReplicaId = env.getNextId();
@@ -1072,8 +1111,21 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return Sets.newHashSet(nameToPartition.keySet());
     }
 
+    public List<String> uncheckedGetPartNamesById(List<Long> partitionIds) {
+        List<String> names = new ArrayList<String>();
+        for (Long id : partitionIds) {
+            names.add(idToPartition.get(id).getName());
+        }
+        return names;
+    }
+
     public List<Long> getPartitionIds() {
-        return new ArrayList<>(idToPartition.keySet());
+        readLock();
+        try {
+            return new ArrayList<>(idToPartition.keySet());
+        } finally {
+            readUnlock();
+        }
     }
 
     public Set<String> getCopiedBfColumns() {
@@ -1232,11 +1284,11 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         if (tblStats == null) {
             return true;
         }
-        if (!tblStats.analyzeColumns().containsAll(getBaseSchema()
+        if (!tblStats.analyzeColumns().containsAll(getColumnIndexPairs(getSchemaAllIndexes(false)
                 .stream()
                 .filter(c -> !StatisticsUtil.isUnsupportedType(c.getType()))
                 .map(Column::getName)
-                .collect(Collectors.toSet()))) {
+                .collect(Collectors.toSet())))) {
             return true;
         }
         long rowCount = getRowCount();
@@ -1249,34 +1301,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public Map<String, Set<String>> findReAnalyzeNeededPartitions() {
-        TableStatsMeta tableStats = Env.getCurrentEnv().getAnalysisManager().findTableStatsStatus(getId());
-        Set<String> allPartitions = getPartitionNames().stream().map(this::getPartition)
-                .filter(Partition::hasData).map(Partition::getName).collect(Collectors.toSet());
-        if (tableStats == null) {
-            Map<String, Set<String>> ret = Maps.newHashMap();
-            for (Column col : getSchemaAllIndexes(false)) {
-                if (StatisticsUtil.isUnsupportedType(col.getType())) {
+    public List<Pair<String, String>> getColumnIndexPairs(Set<String> columns) {
+        List<Pair<String, String>> ret = Lists.newArrayList();
+        // Check the schema of all indexes for each given column name,
+        // If the column name exists in the index, add the <IndexName, ColumnName> pair to return list.
+        for (String column : columns) {
+            for (MaterializedIndexMeta meta : indexIdToMeta.values()) {
+                Column col = meta.getColumnByName(column);
+                if (col == null || StatisticsUtil.isUnsupportedType(col.getType())) {
                     continue;
                 }
-                ret.put(col.getName(), allPartitions);
+                ret.add(Pair.of(getIndexNameById(meta.getIndexId()), column));
             }
-            return ret;
         }
-        Map<String, Set<String>> colToPart = new HashMap<>();
-        for (Column col : getSchemaAllIndexes(false)) {
-            if (StatisticsUtil.isUnsupportedType(col.getType())) {
-                continue;
-            }
-            long lastUpdateTime = tableStats.findColumnLastUpdateTime(col.getName());
-            Set<String> partitions = getPartitionNames().stream()
-                    .map(this::getPartition)
-                    .filter(Partition::hasData)
-                    .filter(partition -> partition.getVisibleVersionTime() >= lastUpdateTime).map(Partition::getName)
-                    .collect(Collectors.toSet());
-            colToPart.put(col.getName(), partitions);
-        }
-        return colToPart;
+        return ret;
     }
 
     @Override
@@ -2185,6 +2223,20 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         return null;
     }
 
+    public void setTimeSeriesCompactionLevelThreshold(long timeSeriesCompactionLevelThreshold) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_TIME_SERIES_COMPACTION_LEVEL_THRESHOLD,
+                                                Long.valueOf(timeSeriesCompactionLevelThreshold).toString());
+        tableProperty.buildTimeSeriesCompactionLevelThreshold();
+    }
+
+    public Long getTimeSeriesCompactionLevelThreshold() {
+        if (tableProperty != null) {
+            return tableProperty.timeSeriesCompactionLevelThreshold();
+        }
+        return null;
+    }
+
     public int getBaseSchemaVersion() {
         MaterializedIndexMeta baseIndexMeta = indexIdToMeta.get(baseIndexId);
         return baseIndexMeta.getSchemaVersion();
@@ -2343,11 +2395,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
         tableProperty.buildStorageFormat();
     }
 
+    public void setInvertedIndexStorageFormat(TInvertedIndexStorageFormat invertedIndexStorageFormat) {
+        TableProperty tableProperty = getOrCreatTableProperty();
+        tableProperty.modifyTableProperties(PropertyAnalyzer.PROPERTIES_INVERTED_INDEX_STORAGE_FORMAT,
+                invertedIndexStorageFormat.name());
+        tableProperty.buildInvertedIndexStorageFormat();
+    }
+
     public TStorageFormat getStorageFormat() {
         if (tableProperty == null) {
             return TStorageFormat.DEFAULT;
         }
         return tableProperty.getStorageFormat();
+    }
+
+    public TInvertedIndexStorageFormat getInvertedIndexStorageFormat() {
+        if (tableProperty == null) {
+            return TInvertedIndexStorageFormat.V2;
+        }
+        return tableProperty.getInvertedIndexStorageFormat();
     }
 
     public TCompressionType getCompressionType() {
@@ -2591,11 +2657,48 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     // During `getNextVersion` and `updateVisibleVersionAndTime` period,
     // the write lock on the table should be held continuously
     public long getNextVersion() {
-        return tableAttributes.getNextVersion();
+        if (!Config.isCloudMode()) {
+            return tableAttributes.getNextVersion();
+        } else {
+            // cloud mode should not reach here
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("getNextVersion in Cloud mode in OlapTable {} ", getName());
+            }
+            return getVisibleVersion() + 1;
+        }
     }
 
     public long getVisibleVersion() {
-        return tableAttributes.getVisibleVersion();
+        if (Config.isNotCloudMode()) {
+            return tableAttributes.getVisibleVersion();
+        }
+        // get version rpc
+        Cloud.GetVersionRequest request = Cloud.GetVersionRequest.newBuilder()
+                .setDbId(this.getDatabase().getId())
+                .setTableId(this.id)
+                .setBatchMode(false)
+                .setIsTableVersion(true)
+                .build();
+
+        try {
+            Cloud.GetVersionResponse resp = getVersionFromMeta(request);
+            long version = -1;
+            if (resp.getStatus().getCode() == Cloud.MetaServiceCode.OK) {
+                version = resp.getVersion();
+            } else {
+                assert resp.getStatus().getCode() == Cloud.MetaServiceCode.VERSION_NOT_FOUND;
+                version = 0;
+            }
+            if (LOG.isDebugEnabled()) {
+                LOG.debug("get version from meta service, version: {}, table: {}", version, getId());
+            }
+            if (version == 0) {
+                version = 1;
+            }
+            return version;
+        } catch (RpcException e) {
+            throw new RuntimeException("get version from meta service failed");
+        }
     }
 
     public long getVisibleVersionTime() {
@@ -2608,8 +2711,13 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
     }
 
     @Override
-    public Map<Long, PartitionItem> getPartitionItems() {
-        return getPartitionInfo().getIdToItem(false);
+    public Map<Long, PartitionItem> getAndCopyPartitionItems() {
+        readLock();
+        try {
+            return Maps.newHashMap(getPartitionInfo().getIdToItem(false));
+        } finally {
+            readUnlock();
+        }
     }
 
     @Override
@@ -2631,7 +2739,25 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public String getPartitionName(long partitionId) throws AnalysisException {
-        return getPartitionOrAnalysisException(partitionId).getName();
+        readLock();
+        try {
+            return getPartitionOrAnalysisException(partitionId).getName();
+        } finally {
+            readUnlock();
+        }
+    }
+
+    private static Cloud.GetVersionResponse getVersionFromMeta(Cloud.GetVersionRequest req)
+            throws RpcException {
+        long startAt = System.nanoTime();
+        try {
+            return SnapshotProxy.getVisibleVersion(req);
+        } finally {
+            SummaryProfile profile = getSummaryProfile();
+            if (profile != null) {
+                profile.addGetTableVersionTime(System.nanoTime() - startAt);
+            }
+        }
     }
 
     @Override
@@ -2641,6 +2767,17 @@ public class OlapTable extends Table implements MTMVRelatedTableIf {
 
     @Override
     public boolean isPartitionColumnAllowNull() {
-        return false;
+        return true;
+    }
+
+    private static SummaryProfile getSummaryProfile() {
+        ConnectContext ctx = ConnectContext.get();
+        if (ctx != null) {
+            StmtExecutor executor = ctx.getExecutor();
+            if (executor != null) {
+                return executor.getSummaryProfile();
+            }
+        }
+        return null;
     }
 }

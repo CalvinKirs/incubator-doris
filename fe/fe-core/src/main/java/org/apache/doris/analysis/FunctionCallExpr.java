@@ -843,12 +843,6 @@ public class FunctionCallExpr extends Expr {
                 throw new AnalysisException(
                         "COUNT must have DISTINCT for multiple arguments: " + this.toSql());
             }
-
-            for (Expr child : children) {
-                if (child.type.isOnlyMetricType() && !child.type.isComplexType()) {
-                    throw new AnalysisException(Type.OnlyMetricTypeErrorMsg);
-                }
-            }
             return;
         }
 
@@ -1549,6 +1543,8 @@ public class FunctionCallExpr extends Expr {
 
         } else if (fnName.getFunction().equalsIgnoreCase("ifnull")
                 || fnName.getFunction().equalsIgnoreCase("nvl")) {
+            Preconditions.checkArgument(children != null && children.size() == 2,
+                    "The " + fnName + " function must have two params");
             Type[] childTypes = collectChildReturnTypes();
             Type assignmentCompatibleType = ScalarType.getAssignmentCompatibleType(childTypes[0], childTypes[1], true,
                     enableDecimal256);

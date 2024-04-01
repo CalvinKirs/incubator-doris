@@ -39,6 +39,7 @@ import org.apache.doris.nereids.trees.expressions.IsNull;
 import org.apache.doris.nereids.trees.expressions.LessThan;
 import org.apache.doris.nereids.trees.expressions.LessThanEqual;
 import org.apache.doris.nereids.trees.expressions.Not;
+import org.apache.doris.nereids.trees.expressions.NullSafeEqual;
 import org.apache.doris.nereids.trees.expressions.Or;
 import org.apache.doris.nereids.trees.expressions.Slot;
 import org.apache.doris.nereids.trees.expressions.functions.scalar.Date;
@@ -48,11 +49,13 @@ import org.apache.doris.nereids.trees.expressions.literal.NullLiteral;
 import org.apache.doris.nereids.trees.expressions.visitor.ExpressionVisitor;
 import org.apache.doris.nereids.types.BooleanType;
 import org.apache.doris.nereids.types.DataType;
+import org.apache.doris.nereids.util.ExpressionUtils;
 import org.apache.doris.nereids.util.Utils;
 
 import com.google.common.collect.BoundType;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.collect.ImmutableMap.Builder;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
@@ -62,11 +65,11 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.BiFunction;
-import java.util.stream.IntStream;
 
 /**
  * OneRangePartitionEvaluator.
@@ -102,31 +105,33 @@ public class OneRangePartitionEvaluator
 
         PartitionRangeExpander expander = new PartitionRangeExpander();
         this.partitionSlotTypes = expander.computePartitionSlotTypes(lowers, uppers);
-        this.slotToType = IntStream.range(0, partitionSlots.size())
-                .mapToObj(index -> Pair.of(partitionSlots.get(index), partitionSlotTypes.get(index)))
-                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+        this.slotToType = Maps.newHashMapWithExpectedSize(16);
+        for (int i = 0; i < partitionSlots.size(); i++) {
+            slotToType.put(partitionSlots.get(i), partitionSlotTypes.get(i));
+        }
 
-        this.partitionSlotContainsNull = IntStream.range(0, partitionSlots.size())
-            .mapToObj(index -> {
-                Slot slot = partitionSlots.get(index);
-                if (!slot.nullable()) {
-                    return Pair.of(slot, false);
-                }
-                PartitionSlotType partitionSlotType = partitionSlotTypes.get(index);
-                boolean maybeNull = false;
-                switch (partitionSlotType) {
-                    case CONST:
-                    case RANGE:
-                        maybeNull = range.lowerEndpoint().getKeys().get(index).isMinValue();
-                        break;
-                    case OTHER:
-                        maybeNull = true;
-                        break;
-                    default:
-                        throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
-                }
-                return Pair.of(slot, maybeNull);
-            }).collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+        this.partitionSlotContainsNull = Maps.newHashMapWithExpectedSize(16);
+        for (int i = 0; i < partitionSlots.size(); i++) {
+            Slot slot = partitionSlots.get(i);
+            if (!slot.nullable()) {
+                partitionSlotContainsNull.put(slot, false);
+                continue;
+            }
+            PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
+            boolean maybeNull = false;
+            switch (partitionSlotType) {
+                case CONST:
+                case RANGE:
+                    maybeNull = range.lowerEndpoint().getKeys().get(i).isMinValue();
+                    break;
+                case OTHER:
+                    maybeNull = true;
+                    break;
+                default:
+                    throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+            }
+            partitionSlotContainsNull.put(slot, maybeNull);
+        }
 
         int expandThreshold = cascadesContext.getAndCacheSessionVariable(
                 "partitionPruningExpandThreshold",
@@ -147,62 +152,14 @@ public class OneRangePartitionEvaluator
 
     @Override
     public List<Map<Slot, PartitionSlotInput>> getOnePartitionInputs() {
-        List<Map<Slot, PartitionSlotInput>> onePartitionInputs = Lists.newArrayList();
-        for (List<Expression> input : inputs) {
-            boolean previousIsLowerBoundLiteral = true;
-            boolean previousIsUpperBoundLiteral = true;
-            List<Pair<Slot, PartitionSlotInput>> slotToInputs = Lists.newArrayList();
-            for (int i = 0; i < partitionSlots.size(); ++i) {
-                Slot partitionSlot = partitionSlots.get(i);
-                // partitionSlot will be replaced to this expression
-                Expression expression = input.get(i);
-                ColumnRange slotRange = null;
-                PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
-                if (expression instanceof Literal) {
-                    // const or expanded range
-                    slotRange = ColumnRange.singleton((Literal) expression);
-                    if (!expression.equals(lowers.get(i))) {
-                        previousIsLowerBoundLiteral = false;
-                    }
-                    if (!expression.equals(uppers.get(i))) {
-                        previousIsUpperBoundLiteral = false;
-                    }
-                } else {
-                    // un expanded range
-                    switch (partitionSlotType) {
-                        case RANGE:
-                            boolean isLastPartitionColumn = i + 1 == partitionSlots.size();
-                            BoundType rightBoundType = isLastPartitionColumn
-                                    ? BoundType.OPEN : BoundType.CLOSED;
-                            slotRange = ColumnRange.range(
-                                    lowers.get(i), BoundType.CLOSED, uppers.get(i), rightBoundType);
-                            break;
-                        case OTHER:
-                            if (previousIsLowerBoundLiteral) {
-                                slotRange = ColumnRange.atLeast(lowers.get(i));
-                            } else if (previousIsUpperBoundLiteral) {
-                                slotRange = ColumnRange.lessThen(uppers.get(i));
-                            } else {
-                                // unknown range
-                                slotRange = ColumnRange.all();
-                            }
-                            break;
-                        default:
-                            throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
-                    }
-                    previousIsLowerBoundLiteral = false;
-                    previousIsUpperBoundLiteral = false;
-                }
-                ImmutableMap<Slot, ColumnRange> slotToRange = ImmutableMap.of(partitionSlot, slotRange);
-                slotToInputs.add(Pair.of(partitionSlot, new PartitionSlotInput(expression, slotToRange)));
-            }
-
-            Map<Slot, PartitionSlotInput> slotPartitionSlotInputMap = fillSlotRangesToInputs(
-                    slotToInputs.stream()
-                            .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value)));
-            onePartitionInputs.add(slotPartitionSlotInputMap);
+        if (partitionSlots.size() == 1 && inputs.size() == 1 && inputs.get(0).size() == 1
+                && inputs.get(0).get(0) instanceof Literal) {
+            // fast path
+            return computeSinglePartitionValueInputs();
+        } else {
+            // slow path
+            return commonComputeOnePartitionInputs();
         }
-        return onePartitionInputs;
     }
 
     @Override
@@ -387,6 +344,27 @@ public class OneRangePartitionEvaluator
     }
 
     @Override
+    public EvaluateRangeResult visitNullSafeEqual(NullSafeEqual nullSafeEqual, EvaluateRangeInput context) {
+        EvaluateRangeResult result = evaluateChildrenThenThis(nullSafeEqual, context);
+        if (!(result.result instanceof NullSafeEqual)) {
+            return result;
+        }
+        // "A <=> null" has been convert to "A is null" or false by NullSafeEqualToEqual rule
+        // so we don't consider "A <=> null" here
+        if (nullSafeEqual.left() instanceof Slot && nullSafeEqual.right() instanceof Literal) {
+            // A <=> literal -> A = literal and A is not null
+            return visit(ExpressionUtils.and(new EqualTo(nullSafeEqual.left(), nullSafeEqual.right()),
+                    new Not(new IsNull(nullSafeEqual.left()))), context);
+        } else if (nullSafeEqual.left() instanceof Literal && nullSafeEqual.right() instanceof Slot) {
+            // literal <=> A -> literal = A and A is not null
+            return visit(ExpressionUtils.and(new EqualTo(nullSafeEqual.left(), nullSafeEqual.right()),
+                    new Not(new IsNull(nullSafeEqual.right()))), context);
+        } else {
+            return result.withRejectNot(false);
+        }
+    }
+
+    @Override
     public EvaluateRangeResult visitInPredicate(InPredicate inPredicate, EvaluateRangeInput context) {
         EvaluateRangeResult result = evaluateChildrenThenThis(inPredicate, context);
         if (!(result.result instanceof InPredicate)) {
@@ -478,7 +456,7 @@ public class OneRangePartitionEvaluator
         boolean hasNewChildren = false;
         for (Expression child : expr.children()) {
             EvaluateRangeResult childResult = child.accept(this, context);
-            if (childResult.result != child) {
+            if (!childResult.result.equals(child)) {
                 hasNewChildren = true;
             }
             childrenResults.add(childResult);
@@ -597,13 +575,14 @@ public class OneRangePartitionEvaluator
     }
 
     private List<Literal> toNereidsLiterals(PartitionKey partitionKey) {
-        return IntStream.range(0, partitionKey.getKeys().size())
-                .mapToObj(index -> {
-                    LiteralExpr literalExpr = partitionKey.getKeys().get(index);
-                    PrimitiveType primitiveType = partitionKey.getTypes().get(index);
-                    Type type = Type.fromPrimitiveType(primitiveType);
-                    return Literal.fromLegacyLiteral(literalExpr, type);
-                }).collect(ImmutableList.toImmutableList());
+        List<Literal> literals = Lists.newArrayListWithCapacity(partitionKey.getKeys().size());
+        for (int i = 0; i < partitionKey.getKeys().size(); i++) {
+            LiteralExpr literalExpr = partitionKey.getKeys().get(i);
+            PrimitiveType primitiveType = partitionKey.getTypes().get(i);
+            Type type = Type.fromPrimitiveType(primitiveType);
+            literals.add(Literal.fromLegacyLiteral(literalExpr, type));
+        }
+        return literals;
     }
 
     @Override
@@ -655,15 +634,20 @@ public class OneRangePartitionEvaluator
     private Map<Slot, PartitionSlotInput> fillSlotRangesToInputs(
             Map<Slot, PartitionSlotInput> inputs) {
 
-        Map<Slot, ColumnRange> allColumnRanges = inputs.entrySet()
-                .stream()
-                .map(entry -> Pair.of(entry.getKey(), entry.getValue().columnRanges.get(entry.getKey())))
-                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+        Builder<Slot, ColumnRange> allColumnRangesBuilder =
+                ImmutableMap.builderWithExpectedSize(16);
+        for (Entry<Slot, PartitionSlotInput> entry : inputs.entrySet()) {
+            allColumnRangesBuilder.put(entry.getKey(), entry.getValue().columnRanges.get(entry.getKey()));
+        }
 
-        return inputs.keySet()
-                .stream()
-                .map(slot -> Pair.of(slot, new PartitionSlotInput(inputs.get(slot).result, allColumnRanges)))
-                .collect(ImmutableMap.toImmutableMap(Pair::key, Pair::value));
+        Map<Slot, ColumnRange> allColumnRanges = allColumnRangesBuilder.build();
+
+        Builder<Slot, PartitionSlotInput> partitionSlotInputs =
+                ImmutableMap.builderWithExpectedSize(16);
+        for (Slot slot : inputs.keySet()) {
+            partitionSlotInputs.put(slot, new PartitionSlotInput(inputs.get(slot).result, allColumnRanges));
+        }
+        return partitionSlotInputs.build();
     }
 
     /** EvaluateRangeInput */
@@ -727,5 +711,72 @@ public class OneRangePartitionEvaluator
     @Override
     public boolean isDefaultPartition() {
         return partitionItem.isDefaultPartition();
+    }
+
+    private List<Map<Slot, PartitionSlotInput>> computeSinglePartitionValueInputs() {
+        Slot partitionSlot = partitionSlots.get(0);
+        Literal literal = (Literal) inputs.get(0).get(0);
+        ColumnRange slotRange = ColumnRange.singleton(literal);
+        ImmutableMap<Slot, ColumnRange> slotToRange = ImmutableMap.of(partitionSlot, slotRange);
+        Map<Slot, PartitionSlotInput> slotToInputs =
+                ImmutableMap.of(partitionSlot, new PartitionSlotInput(literal, slotToRange));
+        return ImmutableList.of(slotToInputs);
+    }
+
+    private List<Map<Slot, PartitionSlotInput>> commonComputeOnePartitionInputs() {
+        List<Map<Slot, PartitionSlotInput>> onePartitionInputs = Lists.newArrayListWithCapacity(inputs.size());
+        for (List<Expression> input : inputs) {
+            boolean previousIsLowerBoundLiteral = true;
+            boolean previousIsUpperBoundLiteral = true;
+            Builder<Slot, PartitionSlotInput> slotToInputs = ImmutableMap.builderWithExpectedSize(16);
+            for (int i = 0; i < partitionSlots.size(); ++i) {
+                Slot partitionSlot = partitionSlots.get(i);
+                // partitionSlot will be replaced to this expression
+                Expression expression = input.get(i);
+                ColumnRange slotRange = null;
+                PartitionSlotType partitionSlotType = partitionSlotTypes.get(i);
+                if (expression instanceof Literal) {
+                    // const or expanded range
+                    slotRange = ColumnRange.singleton((Literal) expression);
+                    if (!expression.equals(lowers.get(i))) {
+                        previousIsLowerBoundLiteral = false;
+                    }
+                    if (!expression.equals(uppers.get(i))) {
+                        previousIsUpperBoundLiteral = false;
+                    }
+                } else {
+                    // un expanded range
+                    switch (partitionSlotType) {
+                        case RANGE:
+                            boolean isLastPartitionColumn = i + 1 == partitionSlots.size();
+                            BoundType rightBoundType = isLastPartitionColumn
+                                    ? BoundType.OPEN : BoundType.CLOSED;
+                            slotRange = ColumnRange.range(
+                                    lowers.get(i), BoundType.CLOSED, uppers.get(i), rightBoundType);
+                            break;
+                        case OTHER:
+                            if (previousIsLowerBoundLiteral) {
+                                slotRange = ColumnRange.atLeast(lowers.get(i));
+                            } else if (previousIsUpperBoundLiteral) {
+                                slotRange = ColumnRange.lessThen(uppers.get(i));
+                            } else {
+                                // unknown range
+                                slotRange = ColumnRange.all();
+                            }
+                            break;
+                        default:
+                            throw new AnalysisException("Unknown partition slot type: " + partitionSlotType);
+                    }
+                    previousIsLowerBoundLiteral = false;
+                    previousIsUpperBoundLiteral = false;
+                }
+                ImmutableMap<Slot, ColumnRange> slotToRange = ImmutableMap.of(partitionSlot, slotRange);
+                slotToInputs.put(partitionSlot, new PartitionSlotInput(expression, slotToRange));
+            }
+
+            Map<Slot, PartitionSlotInput> slotPartitionSlotInputMap = fillSlotRangesToInputs(slotToInputs.build());
+            onePartitionInputs.add(slotPartitionSlotInputMap);
+        }
+        return onePartitionInputs;
     }
 }
