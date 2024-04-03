@@ -74,6 +74,7 @@ import org.apache.doris.nereids.DorisParser.ComplexDataTypeContext;
 import org.apache.doris.nereids.DorisParser.ConstantContext;
 import org.apache.doris.nereids.DorisParser.ConstantSeqContext;
 import org.apache.doris.nereids.DorisParser.CreateMTMVContext;
+import org.apache.doris.nereids.DorisParser.CreateBatchInsertJobContext;
 import org.apache.doris.nereids.DorisParser.CreateProcedureContext;
 import org.apache.doris.nereids.DorisParser.CreateRowPolicyContext;
 import org.apache.doris.nereids.DorisParser.CreateTableContext;
@@ -356,6 +357,7 @@ import org.apache.doris.nereids.trees.plans.commands.CallCommand;
 import org.apache.doris.nereids.trees.plans.commands.CancelMTMVTaskCommand;
 import org.apache.doris.nereids.trees.plans.commands.Command;
 import org.apache.doris.nereids.trees.plans.commands.Constraint;
+import org.apache.doris.nereids.trees.plans.commands.CreateBatchInsertJobCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateMTMVCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreatePolicyCommand;
 import org.apache.doris.nereids.trees.plans.commands.CreateProcedureCommand;
@@ -380,6 +382,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVPropertyInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRefreshInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.AlterMTMVRenameInfo;
+import org.apache.doris.nereids.trees.plans.commands.info.BatchInsertJobInfo;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkLoadDataDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.BulkStorageDesc;
 import org.apache.doris.nereids.trees.plans.commands.info.CancelMTMVTaskInfo;
@@ -580,6 +583,14 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
             }
         }
         return Pair.of(temporaryPartition, partitions);
+    }
+
+    @Override
+    public CreateBatchInsertJobCommand visitCreateBatchInsertJob(CreateBatchInsertJobContext ctx) {
+        int batchSize=ctx.limitNum.getText().isEmpty()?0:Integer.parseInt(ctx.limitNum.getText());
+        //fixme
+        
+        return new CreateBatchInsertJobCommand(new BatchInsertJobInfo());
     }
 
     @Override
