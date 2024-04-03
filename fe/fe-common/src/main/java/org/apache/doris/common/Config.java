@@ -2513,6 +2513,11 @@ public class Config extends ConfigBase {
             options = {"default", "ranger-doris"})
     public static String access_controller_type = "default";
 
+    @ConfField(description = {"指定 mysql登录身份认证类型",
+            "Specifies the authentication type"},
+            options = {"default", "ldap"})
+    public static String authentication_type = "default";
+
     @ConfField(mutable = true, masterOnly = false, description = {"指定 trino-connector catalog 的插件默认加载路径",
             "Specify the default plugins loading path for the trino-connector catalog"})
     public static String trino_connector_plugin_dir = EnvUtils.getDorisHome() + "/connectors";
@@ -2635,6 +2640,35 @@ public class Config extends ConfigBase {
     @ConfField
     public static int drop_user_notify_ms_max_times = 86400;
 
+    @ConfField(mutable = true)
+    public static long cloud_tablet_rebalancer_interval_second = 20;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_partition_balance = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_table_balance = true;
+
+    @ConfField(mutable = true)
+    public static boolean enable_cloud_global_balance = true;
+
+    @ConfField(mutable = true)
+    public static int cloud_pre_heating_time_limit_sec = 300;
+
+    @ConfField(mutable = true)
+    public static double cloud_rebalance_percent_threshold = 0.05;
+
+    @ConfField(mutable = true)
+    public static long cloud_rebalance_number_threshold = 2;
+
+    @ConfField(mutable = true)
+    public static double cloud_balance_tablet_percent_per_run = 0.05;
+
+    @ConfField(mutable = true)
+    public static int cloud_min_balance_tablet_num_per_run = 2;
+
+    @ConfField(mutable = true)
+    public static boolean cloud_preheating_enabled = true;
     //==========================================================================
     //                      end of cloud config
     //==========================================================================
