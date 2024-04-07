@@ -1,5 +1,6 @@
 package org.apache.doris.nereids.trees.plans.commands;
 
+import org.apache.doris.job.extensions.insert.BatchInsertJob;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.BatchInsertJobInfo;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
@@ -14,11 +15,12 @@ public class CreateBatchInsertJobCommand extends Command implements ForwardWithS
 
     @Override
     public <R, C> R accept(PlanVisitor<R, C> visitor, C context) {
-        return null;
+        return visitor.visitCreateBatchInsertJobCommand(this, context);
     }
 
     @Override
     public void run(ConnectContext ctx, StmtExecutor executor) throws Exception {
-
+       //analyze batchInsertJobInfo
+       // build batch insert job info
     }
 }

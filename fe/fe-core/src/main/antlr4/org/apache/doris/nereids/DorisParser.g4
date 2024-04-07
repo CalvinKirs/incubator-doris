@@ -111,7 +111,7 @@ statementBase
     | ALTER TABLE table=multipartIdentifier
         DROP CONSTRAINT constraintName=errorCapturingIdentifier           #dropConstraint
     | SHOW CONSTRAINTS FROM table=multipartIdentifier                                 #showConstraint
-    | BATCH ON COLUMN columnName=multipartIdentifier 
+    | BATCH ON COLUMN columnName=identifier 
               (STARTS starts=INTEGER_VALUE | ENDS ends=INTEGER_VALUE)?
               LIMIT limitNum=INTEGER_VALUE
               USING query                                      #createBatchInsertJob
