@@ -347,8 +347,8 @@ under the License.
         <jetty.version>9.4.53.v20231009</jetty.version>
         <immutables.version>2.9.3</immutables.version>
         <vesoft.client.version>3.0.0</vesoft.client.version>
-        <!--todo waiting release-->
-        <quartz.version>2.3.2</quartz.version>
+        
+        <bcprov-jdk18on.version>1.78.1</bcprov-jdk18on.version>
         <!-- paimon -->
         <paimon.version>0.7.0-incubating</paimon.version>
         <disruptor.version>3.4.4</disruptor.version>
@@ -404,10 +404,11 @@ under the License.
     <dependencyManagement>
         <dependencies>
             <dependency>
-                <groupId>org.quartz-scheduler</groupId>
-                <artifactId>quartz</artifactId>
-                <version>${quartz.version}</version>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
             </dependency>
+            
             <dependency>
                 <groupId>com.nimbusds</groupId>
                 <artifactId>nimbus-jose-jwt</artifactId>
