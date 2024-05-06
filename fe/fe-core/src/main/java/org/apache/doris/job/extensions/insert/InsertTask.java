@@ -138,31 +138,36 @@ public class InsertTask extends AbstractTask {
 
     @Override
     public void before() throws JobException {
-        if (isCanceled.get()) {
-            throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
-        }
-        ctx = new ConnectContext();
-        ctx.setEnv(Env.getCurrentEnv());
-        ctx.setQualifiedUser(userIdentity.getQualifiedUser());
-        ctx.setCurrentUserIdentity(userIdentity);
-        ctx.getState().reset();
-        ctx.setThreadLocalInfo();
-        if (StringUtils.isNotEmpty(currentDb)) {
-            ctx.setDatabase(currentDb);
-        }
-        TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
-        ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
-        ctx.getSessionVariable().enableNereidsDML = true;
-        stmtExecutor = new StmtExecutor(ctx, (String) null);
-        ctx.setQueryId(queryId);
-        if (StringUtils.isNotEmpty(sql)) {
-            NereidsParser parser = new NereidsParser();
-            this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
-            this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
-            this.command.setJobId(getTaskId());
-        }
+        try {
+            if (isCanceled.get()) {
+                throw new JobException("Export executor has been canceled, task id: {}", getTaskId());
+            }
+            ctx = new ConnectContext();
+            ctx.setEnv(Env.getCurrentEnv());
+            ctx.setQualifiedUser(userIdentity.getQualifiedUser());
+            ctx.setCurrentUserIdentity(userIdentity);
+            ctx.getState().reset();
+            ctx.setThreadLocalInfo();
+            if (StringUtils.isNotEmpty(currentDb)) {
+                ctx.setDatabase(currentDb);
+            }
+            TUniqueId queryId = generateQueryId(UUID.randomUUID().toString());
+            ctx.getSessionVariable().enableFallbackToOriginalPlanner = false;
+            ctx.getSessionVariable().enableNereidsDML = true;
+            stmtExecutor = new StmtExecutor(ctx, (String) null);
+            ctx.setQueryId(queryId);
+            if (StringUtils.isNotEmpty(sql)) {
+                NereidsParser parser = new NereidsParser();
+                this.command = (InsertIntoTableCommand) parser.parseSingle(sql);
+                this.command.setLabelName(Optional.of(getJobId() + LABEL_SPLITTER + getTaskId()));
+                this.command.setJobId(getTaskId());
+            }
 
-        super.before();
+            super.before();
+        } catch (Exception e) {
+            closeOrReleaseResources();
+            throw new JobException(e);
+        }
 
     }
 
@@ -183,6 +188,20 @@ public class InsertTask extends AbstractTask {
             log.warn("execute insert task error, job id is {}, task id is {},sql is {}", getJobId(),
                     getTaskId(), sql, e);
             throw new JobException(e);
+        } finally {
+            closeOrReleaseResources();
+        }
+    }
+
+    private void closeOrReleaseResources() {
+        if (null != stmtExecutor) {
+            stmtExecutor = null;
+        }
+        if (null != command) {
+            command = null;
+        }
+        if (null != ctx) {
+            ctx = null;
         }
     }
 
@@ -203,6 +222,7 @@ public class InsertTask extends AbstractTask {
         if (isFinished.get() || isCanceled.get()) {
             return;
         }
+        closeOrReleaseResources();
         isCanceled.getAndSet(true);
         if (null != stmtExecutor) {
             stmtExecutor.cancel();
