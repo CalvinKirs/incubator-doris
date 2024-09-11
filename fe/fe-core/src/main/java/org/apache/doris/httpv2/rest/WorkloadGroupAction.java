@@ -97,7 +97,7 @@ public class WorkloadGroupAction extends RestBaseController {
         Map<String, List<String>> retMap = Maps.newHashMap();
         for (List<String> authLine : infos) {
             String userName = authLine.get(0).trim();
-            String authString = authLine.get(13);
+            String authString = authLine.get(10);
             List<String> wgList = new ArrayList<>();
             String[] ss1 = authString.split(";");
             for (String wgAuth : ss1) {
