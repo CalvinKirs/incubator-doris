@@ -19,10 +19,12 @@ package org.apache.doris.fs.remote.dfs;
 
 import org.apache.doris.analysis.StorageBackend;
 import org.apache.doris.backup.Status;
+import org.apache.doris.common.Config;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.util.URI;
+import org.apache.doris.fs.HdfsUtil;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
 import org.apache.doris.fs.operations.OpParams;
@@ -57,7 +59,7 @@ import java.util.List;
 import java.util.Map;
 
 public class DFSFileSystem extends RemoteFileSystem {
-
+    public static final String HADOOP_CONFIG_RESOURCES = "hadoop.config.resources";
     public static final String PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH = "ipc.client.fallback-to-simple-auth-allowed";
     private static final Logger LOG = LogManager.getLogger(DFSFileSystem.class);
     private HDFSFileOperations operations = null;
@@ -78,7 +80,12 @@ public class DFSFileSystem extends RemoteFileSystem {
         if (dfsFileSystem == null) {
             synchronized (this) {
                 if (dfsFileSystem == null) {
-                    Configuration conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    Configuration conf;
+                    if (properties.containsKey(HADOOP_CONFIG_RESOURCES)) {
+                        conf = HdfsUtil.loadConfigurationFromHadoopConfDir(properties.get(HADOOP_CONFIG_RESOURCES));
+                    } else {
+                        conf = getHdfsConf(ifNotSetFallbackToSimpleAuth());
+                    }
                     for (Map.Entry<String, String> propEntry : properties.entrySet()) {
                         conf.set(propEntry.getKey(), propEntry.getValue());
                     }
@@ -103,7 +110,8 @@ public class DFSFileSystem extends RemoteFileSystem {
     }
 
     protected RemoteIterator<LocatedFileStatus> getLocatedFiles(boolean recursive,
-                FileSystem fileSystem, Path locatedPath) throws IOException {
+                                                                FileSystem fileSystem, Path locatedPath)
+            throws IOException {
         return authenticator.doAs(() -> fileSystem.listFiles(locatedPath, recursive));
     }
 
@@ -118,6 +126,26 @@ public class DFSFileSystem extends RemoteFileSystem {
             hdfsConf.set(PROP_ALLOW_FALLBACK_TO_SIMPLE_AUTH, "true");
         }
         return hdfsConf;
+    }
+
+    private void loadConfigFromResources(Configuration conf) {
+        // Get the Hadoop config resources from properties
+        String hadoopConfigResources = properties.get(HADOOP_CONFIG_RESOURCES);
+        if (hadoopConfigResources != null) {
+            for (String resource : hadoopConfigResources.split(",")) {
+                // Construct the full path to the resource
+                String resourcePath = Config.external_catalog_config_dir + File.separator + resource.trim();
+                File file = new File(resourcePath); // Create a File object for the resource path
+
+                // Check if the file exists and is a regular file
+                if (file.exists() && file.isFile()) {
+                    conf.addResource(new Path(file.toURI())); // Add the resource to the configuration
+                } else {
+                    // Handle the case where the file does not exist
+                    throw new IllegalArgumentException("Hadoop config resource file does not exist: " + resourcePath);
+                }
+            }
+        }
     }
 
     @Override
@@ -213,7 +241,7 @@ public class DFSFileSystem extends RemoteFileSystem {
      * @throws IOException when read data error.
      */
     private static ByteBuffer readStreamBuffer(FSDataInputStream fsDataInputStream, long readOffset, long length)
-                throws IOException {
+            throws IOException {
         synchronized (fsDataInputStream) {
             long currentStreamOffset;
             try {
