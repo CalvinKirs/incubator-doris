@@ -163,6 +163,7 @@ elif [[ "${DORIS_TOOLCHAIN}" == "clang" ]]; then
     fi
     export LLVM_PROFDATA
 
+
     if [[ -z "${ENABLE_PCH}" ]]; then
         ENABLE_PCH='ON'
     fi
