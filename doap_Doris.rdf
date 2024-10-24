@@ -36,6 +36,7 @@
     <programming-language>C++,Java</programming-language>
     <category rdf:resource="http://projects.apache.org/category/database" />
     <repository>
+
       <SVNRepository>
         <location rdf:resource="https://gitbox.apache.org/repos/asf/doris.git"/>
         <browse rdf:resource="https://github.com/apache/doris"/>
