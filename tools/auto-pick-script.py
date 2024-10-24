@@ -44,6 +44,11 @@ subprocess.run(["git", "clone", repo_url])
 repo_dir = REPO_NAME.split("/")[-1]  # Get the directory name
 subprocess.run(["git", "checkout", new_branch_name], cwd=repo_dir)
 
+# Set Git user identity for commits
+subprocess.run(["git", "config", "user.email", "your-email@example.com"], cwd=repo_dir)
+subprocess.run(["git", "config", "user.name", "Your Name"], cwd=repo_dir)
+
+
 # Execute the cherry-pick operation
 try:
     result = subprocess.run(["git", "cherry-pick", merge_commit_sha], cwd=repo_dir, check=True)
