@@ -30,4 +30,4 @@ jobs:
           REPO_NAME: ${{ github.repository }}
           CONFLICT_LABEL: cherry-pick-conflict-in-2.1
         run: |
-          python auto-pick-script.py ${{ github.event.pull_request.number }} branch-2.1  
+          python tools/auto-pick-script.py ${{ github.event.pull_request.number }} branch-2.1  
