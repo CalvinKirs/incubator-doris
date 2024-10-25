@@ -13,6 +13,7 @@
     "noImplicitThis": true,
     "noImplicitAny": false,
     "strictNullChecks": true,
+    
     "resolveJsonModule": true,
     "esModuleInterop": true,
     "suppressImplicitAnyIndexErrors": true,
