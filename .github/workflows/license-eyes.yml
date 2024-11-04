@@ -32,8 +32,10 @@ jobs:
     if: |
       (github.event_name == 'pull_request_target') ||
       (github.event_name == 'push' && github.ref == 'refs/heads/master') ||
-      (github.event.label.name == 'run-workflow' &&
-       github.event.issue.user.login == 'github-actions[bot]')
+      (github.event_name == 'pull_request' && github.event.action == 'labeled' && 
+       github.event.label.name == 'run-workflow')||
+      (github.event_name == 'pull_request')
+     
     steps:
       - name: "Checkout ${{ github.ref }} ( ${{ github.sha }} )"
         if: ${{ github.event_name != 'pull_request_target' }}
