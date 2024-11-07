@@ -28,6 +28,7 @@ import org.apache.doris.common.DdlException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.DorisTypeVisitor;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.ExternalDatabase;
@@ -53,11 +54,14 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     protected Catalog catalog;
     protected IcebergExternalCatalog dorisCatalog;
     protected SupportsNamespaces nsCatalog;
+    private PreExecutionAuthenticator preExecutionAuthenticator;
 
     public IcebergMetadataOps(IcebergExternalCatalog dorisCatalog, Catalog catalog) {
         this.dorisCatalog = dorisCatalog;
         this.catalog = catalog;
         nsCatalog = (SupportsNamespaces) catalog;
+        this.preExecutionAuthenticator = dorisCatalog.preExecutionAuthenticator;
+
     }
 
     public Catalog getCatalog() {
@@ -95,6 +99,18 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void createDb(CreateDbStmt stmt) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                performCreateDb(stmt);
+                return null;
+
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to create database: " + stmt.getFullDbName(), e);
+        }
+    }
+
+    private void performCreateDb(CreateDbStmt stmt) throws DdlException {
         SupportsNamespaces nsCatalog = (SupportsNamespaces) catalog;
         String dbName = stmt.getFullDbName();
         Map<String, String> properties = stmt.getProperties();
@@ -109,7 +125,7 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
         String icebergCatalogType = dorisCatalog.getIcebergCatalogType();
         if (!properties.isEmpty() && !IcebergExternalCatalog.ICEBERG_HMS.equals(icebergCatalogType)) {
             throw new DdlException(
-                "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
+                    "Not supported: create database with properties for iceberg catalog type: " + icebergCatalogType);
         }
         nsCatalog.createNamespace(Namespace.of(dbName), properties);
         dorisCatalog.onRefreshCache(true);
@@ -117,6 +133,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropDb(DropDbStmt stmt) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                preformDropDb(stmt);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to drop database: " + stmt.getDbName(), e);
+        }
+    }
+
+    private void preformDropDb(DropDbStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         if (!databaseExist(dbName)) {
             if (stmt.isSetIfExists()) {
@@ -133,6 +160,15 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public boolean createTable(CreateTableStmt stmt) throws UserException {
+        try {
+            preExecutionAuthenticator.execute(() -> performCreateTable(stmt));
+        } catch (Exception e) {
+            throw new DdlException("Failed to create table: " + stmt.getTableName(), e);
+        }
+        return false;
+    }
+
+    public boolean performCreateTable(CreateTableStmt stmt) throws UserException {
         String dbName = stmt.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
@@ -165,6 +201,17 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
 
     @Override
     public void dropTable(DropTableStmt stmt) throws DdlException {
+        try {
+            preExecutionAuthenticator.execute(() -> {
+                performDropTable(stmt);
+                return null;
+            });
+        } catch (Exception e) {
+            throw new DdlException("Failed to drop table: " + stmt.getTableName(), e);
+        }
+    }
+
+    private void performDropTable(DropTableStmt stmt) throws DdlException {
         String dbName = stmt.getDbName();
         ExternalDatabase<?> db = dorisCatalog.getDbNullable(dbName);
         if (db == null) {
@@ -186,5 +233,9 @@ public class IcebergMetadataOps implements ExternalMetadataOps {
     @Override
     public void truncateTable(String dbName, String tblName, List<String> partitions) {
         throw new UnsupportedOperationException("Truncate Iceberg table is not supported.");
+    }
+
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        return preExecutionAuthenticator;
     }
 }

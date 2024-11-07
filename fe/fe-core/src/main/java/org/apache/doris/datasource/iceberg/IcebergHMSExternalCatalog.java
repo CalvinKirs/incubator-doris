@@ -17,6 +17,8 @@
 
 package org.apache.doris.datasource.iceberg;
 
+import org.apache.doris.common.security.authentication.AuthenticationConfig;
+import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.constants.HMSProperties;
@@ -46,6 +48,12 @@ public class IcebergHMSExternalCatalog extends IcebergExternalCatalog {
         catalogProperties.put(CatalogProperties.URI, metastoreUris);
         hiveCatalog.initialize(getName(), catalogProperties);
         catalog = hiveCatalog;
+        if (preExecutionAuthenticator.getHadoopAuthenticator() == null) {
+            AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
+            HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
+        }
     }
+
 }
 
