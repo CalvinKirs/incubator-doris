@@ -20,6 +20,7 @@ package org.apache.doris.datasource.paimon;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.doris.datasource.CatalogProperty;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.datasource.InitCatalogLog;
@@ -74,7 +75,7 @@ public abstract class PaimonExternalCatalog extends ExternalCatalog {
             conf.set(propEntry.getKey(), propEntry.getValue());
         }
         authConf = AuthenticationConfig.getKerberosConfig(conf);
-        hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authConf);
+        hadoopAuthenticator = HadoopAuthenticatorManager.getAuthenticator(authConf);
     }
 
     public String getCatalogType() {

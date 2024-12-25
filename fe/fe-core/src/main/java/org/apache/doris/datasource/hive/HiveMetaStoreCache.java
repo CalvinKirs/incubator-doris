@@ -33,6 +33,7 @@ import org.apache.doris.common.FeConstants;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.doris.common.util.CacheBulkLoader;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.common.util.Util;
@@ -742,8 +743,8 @@ public class HiveMetaStoreCache {
             for (HivePartition partition : partitions) {
 
                 AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(jobConf);
-                HadoopAuthenticator hadoopAuthenticator =
-                        HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+                HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticatorManager
+                        .getAuthenticator(authenticationConfig);
 
                 FileCacheValue fileCacheValue = new FileCacheValue();
                 AcidUtils.Directory directory = hadoopAuthenticator.doAs(() -> AcidUtils.getAcidState(

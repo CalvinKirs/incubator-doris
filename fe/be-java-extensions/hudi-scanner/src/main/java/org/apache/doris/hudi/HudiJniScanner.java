@@ -25,6 +25,7 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import com.google.common.util.concurrent.ThreadFactoryBuilder;
 import org.apache.avro.generic.GenericDatumReader;
 import org.apache.avro.util.WeakIdentityHashMap;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.log4j.Logger;
 import org.apache.spark.sql.catalyst.InternalRow;
 import org.apache.spark.sql.sources.Filter;
@@ -160,8 +161,8 @@ public class HudiJniScanner extends JniScanner {
             try {
                 lastUpdateTime.set(System.currentTimeMillis());
                 AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(split.hadoopConf());
-                HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator
-                        .getHadoopAuthenticator(authenticationConfig);
+                HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticatorManager
+                        .getAuthenticator(authenticationConfig);
                 if (split.incrementalRead()) {
                     recordIterator = hadoopAuthenticator.doAs(() -> new MORIncrementalSplitReader(split)
                             .buildScanIterator(new Filter[0]));

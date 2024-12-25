@@ -21,6 +21,7 @@ import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 
 import org.apache.commons.io.FileUtils;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hudi.common.table.HoodieTableMetaClient;
 import org.apache.hudi.storage.hadoop.HadoopStorageConfiguration;
@@ -88,7 +89,7 @@ public class Utils {
     public static HoodieTableMetaClient getMetaClient(Configuration conf, String basePath) {
         HadoopStorageConfiguration hadoopStorageConfiguration = new HadoopStorageConfiguration(conf);
         AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
-        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticatorManager.getAuthenticator(authenticationConfig);
         try {
             return hadoopAuthenticator.doAs(() -> HoodieTableMetaClient.builder()
                     .setConf(hadoopStorageConfiguration).setBasePath(basePath).build());

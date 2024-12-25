@@ -22,6 +22,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.doris.common.util.URI;
 import org.apache.doris.fs.operations.HDFSFileOperations;
 import org.apache.doris.fs.operations.HDFSOpParams;
@@ -90,7 +91,7 @@ public class DFSFileSystem extends RemoteFileSystem {
                         conf.set(propEntry.getKey(), propEntry.getValue());
                     }
                     AuthenticationConfig authConfig = AuthenticationConfig.getKerberosConfig(conf);
-                    authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
+                    authenticator = HadoopAuthenticatorManager.getAuthenticator(authConfig);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
                             try {

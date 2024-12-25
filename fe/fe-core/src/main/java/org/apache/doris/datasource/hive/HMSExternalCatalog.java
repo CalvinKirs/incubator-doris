@@ -27,6 +27,7 @@ import org.apache.doris.common.Pair;
 import org.apache.doris.common.ThreadPoolManager;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.common.util.Util;
 import org.apache.doris.datasource.CatalogProperty;
@@ -106,7 +107,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         props = PropertyConverter.convertToMetaProperties(props);
         catalogProperty = new CatalogProperty(resource, props);
         AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-        authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+        authenticator = HadoopAuthenticatorManager.getAuthenticator(config);
     }
 
     @Override
@@ -173,7 +174,7 @@ public class HMSExternalCatalog extends ExternalCatalog {
         preExecutionAuthenticator = new PreExecutionAuthenticator();
         if (authenticator == null) {
             AuthenticationConfig config = AuthenticationConfig.getKerberosConfig(getConfiguration());
-            authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
+            authenticator = HadoopAuthenticatorManager.getAuthenticator(config);
         }
 
         HiveConf hiveConf = null;

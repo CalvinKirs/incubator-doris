@@ -22,6 +22,7 @@ import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.fs.obj.S3ObjStorage;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -81,7 +82,7 @@ public class S3FileSystem extends ObjFileSystem {
                     // S3 does not support Kerberos authentication,
                     // so here we create a simple authentication
                     AuthenticationConfig authConfig = AuthenticationConfig.getSimpleAuthenticationConfig(conf);
-                    HadoopAuthenticator authenticator = HadoopAuthenticator.getHadoopAuthenticator(authConfig);
+                    HadoopAuthenticator authenticator = HadoopAuthenticatorManager.getAuthenticator(authConfig);
                     try {
                         dfsFileSystem = authenticator.doAs(() -> {
                             try {

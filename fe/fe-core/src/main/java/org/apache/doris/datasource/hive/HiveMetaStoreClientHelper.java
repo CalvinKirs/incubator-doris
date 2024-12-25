@@ -41,6 +41,7 @@ import org.apache.doris.catalog.Type;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.security.authentication.AuthenticationConfig;
 import org.apache.doris.common.security.authentication.HadoopAuthenticator;
+import org.apache.doris.common.security.authentication.HadoopAuthenticatorManager;
 import org.apache.doris.datasource.ExternalCatalog;
 import org.apache.doris.thrift.TExprOpcode;
 
@@ -821,7 +822,7 @@ public class HiveMetaStoreClientHelper {
     public static <T> T ugiDoAs(Configuration conf, PrivilegedExceptionAction<T> action) {
         // if hive config is not ready, then use hadoop kerberos to login
         AuthenticationConfig authenticationConfig = AuthenticationConfig.getKerberosConfig(conf);
-        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticator.getHadoopAuthenticator(authenticationConfig);
+        HadoopAuthenticator hadoopAuthenticator = HadoopAuthenticatorManager.getAuthenticator(authenticationConfig);
         try {
             return hadoopAuthenticator.doAs(action);
         } catch (IOException e) {
