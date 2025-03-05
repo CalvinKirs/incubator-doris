@@ -34,7 +34,7 @@ public class ConnectionProperties {
         this.origProps = origProps;
     }
 
-    protected void normalizedAndCheckProps() {
+    public void normalizedAndCheckProps() {
         // 1. prepare phase
         Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
         // 2. overwrite result properties with original properties
@@ -57,7 +57,8 @@ public class ConnectionProperties {
             }
         }
         // 3. check properties
-        checkRequiredProperties();
+        //fixme check properties
+        //checkRequiredProperties();
     }
 
     // Some properties may be loaded from file

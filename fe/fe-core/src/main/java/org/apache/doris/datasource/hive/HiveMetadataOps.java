@@ -68,10 +68,9 @@ public class HiveMetadataOps implements ExternalMetadataOps {
     private final HMSExternalCatalog catalog;
     private HadoopAuthenticator hadoopAuthenticator;
 
-    public HiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig, HMSExternalCatalog catalog) {
+    public HiveMetadataOps(HiveConf hiveConf, HMSExternalCatalog catalog) {
         this(catalog, createCachedClient(hiveConf,
-                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size),
-                jdbcClientConfig));
+                Math.max(MIN_CLIENT_POOL_SIZE, Config.max_external_cache_loader_thread_pool_size)));
         hadoopAuthenticator = catalog.getAuthenticator();
         client.setHadoopAuthenticator(hadoopAuthenticator);
     }
@@ -90,20 +89,10 @@ public class HiveMetadataOps implements ExternalMetadataOps {
         return catalog;
     }
 
-    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize,
-            JdbcClientConfig jdbcClientConfig) {
-        if (hiveConf != null) {
-            ThriftHMSCachedClient client = new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
-            return client;
-        }
-        Preconditions.checkNotNull(jdbcClientConfig, "hiveConf and jdbcClientConfig are both null");
-        String dbType = JdbcClient.parseDbType(jdbcClientConfig.getJdbcUrl());
-        switch (dbType) {
-            case JdbcResource.POSTGRESQL:
-                return new PostgreSQLJdbcHMSCachedClient(jdbcClientConfig);
-            default:
-                throw new IllegalArgumentException("Unsupported DB type: " + dbType);
-        }
+    private static HMSCachedClient createCachedClient(HiveConf hiveConf, int thriftClientPoolSize) {
+        Preconditions.checkNotNull(hiveConf);
+        return new ThriftHMSCachedClient(hiveConf, thriftClientPoolSize);
+
     }
 
     @Override

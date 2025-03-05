@@ -161,10 +161,13 @@ public class MetastoreProperties extends ConnectionProperties {
             default:
                 throw new IllegalArgumentException("Unknown metastore type: " + type);
         }
-        metastoreProperties.normalizedAndCheckProps();
+        //fieme metastoreProperties.normalizedAndCheckProps();
         return metastoreProperties;
     }
 
+    public Map<String,String> getAllProperties() {
+        return origProps;
+    }
     protected MetastoreProperties(Type type, Map<String, String> origProps) {
         super(origProps);
         this.type = type;

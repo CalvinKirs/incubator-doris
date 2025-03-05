@@ -40,7 +40,8 @@ import org.apache.doris.datasource.iceberg.IcebergUtils;
 import org.apache.doris.datasource.jdbc.client.JdbcClientConfig;
 import org.apache.doris.datasource.operations.ExternalMetadataOperations;
 import org.apache.doris.datasource.property.PropertyConverter;
-import org.apache.doris.datasource.property.constants.HMSProperties;
+import org.apache.doris.datasource.property.metastore.HMSProperties;
+import org.apache.doris.datasource.property.metastore.MetastoreProperties;
 import org.apache.doris.fs.FileSystemProvider;
 import org.apache.doris.fs.FileSystemProviderImpl;
 import org.apache.doris.fs.remote.dfs.DFSFileSystem;
@@ -111,45 +112,12 @@ public class HMSExternalCatalog extends ExternalCatalog {
     public void checkProperties() throws DdlException {
         super.checkProperties();
         // check file.meta.cache.ttl-second parameter
+        //todo should in hmsProperties?
         String fileMetaCacheTtlSecond = catalogProperty.getOrDefault(FILE_META_CACHE_TTL_SECOND, null);
         if (Objects.nonNull(fileMetaCacheTtlSecond) && NumberUtils.toInt(fileMetaCacheTtlSecond, FILE_META_CACHE_NO_TTL)
                 < FILE_META_CACHE_TTL_DISABLE_CACHE) {
             throw new DdlException(
                     "The parameter " + FILE_META_CACHE_TTL_SECOND + " is wrong, value is " + fileMetaCacheTtlSecond);
-        }
-
-        // check the dfs.ha properties
-        // 'dfs.nameservices'='your-nameservice',
-        // 'dfs.ha.namenodes.your-nameservice'='nn1,nn2',
-        // 'dfs.namenode.rpc-address.your-nameservice.nn1'='172.21.0.2:4007',
-        // 'dfs.namenode.rpc-address.your-nameservice.nn2'='172.21.0.3:4007',
-        // 'dfs.client.failover.proxy.provider.your-nameservice'='xxx'
-        String dfsNameservices = catalogProperty.getOrDefault(HdfsResource.DSF_NAMESERVICES, "");
-        if (Strings.isNullOrEmpty(dfsNameservices)) {
-            return;
-        }
-
-        String[] nameservices = dfsNameservices.split(",");
-        for (String dfsservice : nameservices) {
-            String namenodes = catalogProperty.getOrDefault("dfs.ha.namenodes." + dfsservice, "");
-            if (Strings.isNullOrEmpty(namenodes)) {
-                throw new DdlException("Missing dfs.ha.namenodes." + dfsservice + " property");
-            }
-            String[] names = namenodes.split(",");
-            for (String name : names) {
-                String address = catalogProperty.getOrDefault("dfs.namenode.rpc-address." + dfsservice + "." + name,
-                        "");
-                if (Strings.isNullOrEmpty(address)) {
-                    throw new DdlException(
-                            "Missing dfs.namenode.rpc-address." + dfsservice + "." + name + " property");
-                }
-            }
-            String failoverProvider = catalogProperty.getOrDefault("dfs.client.failover.proxy.provider." + dfsservice,
-                    "");
-            if (Strings.isNullOrEmpty(failoverProvider)) {
-                throw new DdlException(
-                        "Missing dfs.client.failover.proxy.provider." + dfsservice + " property");
-            }
         }
     }
 
@@ -161,26 +129,10 @@ public class HMSExternalCatalog extends ExternalCatalog {
             this.authenticator = HadoopAuthenticator.getHadoopAuthenticator(config);
             this.preExecutionAuthenticator.setHadoopAuthenticator(authenticator);
         }
-
-        HiveConf hiveConf = null;
-        JdbcClientConfig jdbcClientConfig = null;
-        String hiveMetastoreType = catalogProperty.getOrDefault(HMSProperties.HIVE_METASTORE_TYPE, "");
-        if (hiveMetastoreType.equalsIgnoreCase("jdbc")) {
-            jdbcClientConfig = new JdbcClientConfig();
-            jdbcClientConfig.setUser(catalogProperty.getOrDefault("user", ""));
-            jdbcClientConfig.setPassword(catalogProperty.getOrDefault("password", ""));
-            jdbcClientConfig.setJdbcUrl(catalogProperty.getOrDefault("jdbc_url", ""));
-            jdbcClientConfig.setDriverUrl(catalogProperty.getOrDefault("driver_url", ""));
-            jdbcClientConfig.setDriverClass(catalogProperty.getOrDefault("driver_class", ""));
-        } else {
-            hiveConf = new HiveConf();
-            for (Map.Entry<String, String> kv : catalogProperty.getHadoopProperties().entrySet()) {
-                hiveConf.set(kv.getKey(), kv.getValue());
-            }
-            hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
-                    String.valueOf(Config.hive_metastore_client_timeout_second));
-        }
-        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, jdbcClientConfig, this);
+        
+        HMSProperties hmsProperties=(HMSProperties) catalogProperty.getMetastoreProperties();
+        HiveConf hiveConf = hmsProperties.getHiveConf();
+        HiveMetadataOps hiveOps = ExternalMetadataOperations.newHiveMetadataOps(hiveConf, this);
         FileSystemProvider fileSystemProvider = new FileSystemProviderImpl(Env.getCurrentEnv().getExtMetaCacheMgr(),
                 this.bindBrokerName(), this.catalogProperty.getHadoopProperties());
         this.fileSystemExecutor = ThreadPoolManager.newDaemonFixedThreadPool(FILE_SYSTEM_EXECUTOR_THREAD_NUM,

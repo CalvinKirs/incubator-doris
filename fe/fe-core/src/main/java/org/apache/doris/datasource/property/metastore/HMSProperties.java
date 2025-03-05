@@ -18,6 +18,8 @@
 package org.apache.doris.datasource.property.metastore;
 
 import org.apache.doris.common.CatalogConfigFileUtils;
+import org.apache.doris.common.Config;
+import org.apache.doris.common.security.authentication.PreExecutionAuthenticator;
 import org.apache.doris.datasource.property.ConnectorProperty;
 
 import com.google.common.base.Strings;
@@ -40,7 +42,7 @@ public class HMSProperties extends MetastoreProperties {
     @ConnectorProperty(names = {"hive.metastore.authentication.type"},
             required = false,
             description = "The authentication type of the hive metastore.")
-    private String hiveMetastoreAuthenticationType = "none";
+    private String hiveMetastoreAuthenticationType = "simple";
 
     @ConnectorProperty(names = {"hive.conf.resources"},
             required = false,
@@ -91,6 +93,21 @@ public class HMSProperties extends MetastoreProperties {
         }
     }
 
+    public HiveConf getHiveConf() {
+        Map<String, String> allProps = loadConfigFromFile(getResourceConfigPropName());
+        HiveConf hiveConf = new HiveConf();
+        allProps.forEach(hiveConf::set);
+        hiveConf.set("hive.metastore.authentication.type", hiveMetastoreAuthenticationType);
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            hiveConf.set("hive.metastore.service.principal", hiveMetastoreServicePrincipal);
+            hiveConf.set("hive.metastore.client.principal", hiveMetastoreClientPrincipal);
+            hiveConf.set("hive.metastore.client.keytab", hiveMetastoreClientKeytab);
+        }
+        hiveConf.set(HiveConf.ConfVars.METASTORE_CLIENT_SOCKET_TIMEOUT.name(),
+                String.valueOf(Config.hive_metastore_client_timeout_second));
+        return hiveConf;
+    }
+
     private void checkHiveConfResourcesConfig() {
         loadConfigFromFile(getResourceConfigPropName());
     }
@@ -129,6 +146,14 @@ public class HMSProperties extends MetastoreProperties {
             confMap.put(entry.getKey(), entry.getValue());
         }
         return confMap;
+    }
+    
+    public PreExecutionAuthenticator getPreExecutionAuthenticator() {
+        if ("kerberos".equalsIgnoreCase(hiveMetastoreAuthenticationType)) {
+            return new KerberosPreExecutionAuthenticator(hiveMetastoreServicePrincipal, hiveMetastoreClientPrincipal,
+                    hiveMetastoreClientKeytab);
+        }
+        return null;
     }
 
 }

@@ -17,9 +17,11 @@
 
 package org.apache.doris.datasource;
 
+import lombok.Getter;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.catalog.Resource;
 import org.apache.doris.catalog.Resource.ReferenceType;
+import org.apache.doris.common.DdlException;
 import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.datasource.property.PropertyConverter;
@@ -55,7 +57,9 @@ public class CatalogProperty implements Writable {
     @SerializedName(value = "properties")
     private Map<String, String> properties;
 
+    @Getter
     private MetastoreProperties metastoreProperties;
+    @Getter
     private List<StorageProperties> storagePropertiesList;
 
     public CatalogProperty(String resource, Map<String, String> properties) {
@@ -66,6 +70,13 @@ public class CatalogProperty implements Writable {
         }
         metastoreProperties = MetastoreProperties.create(this.properties);
         storagePropertiesList = StorageProperties.create(this.properties);
+    }
+
+    public void checkProperties() throws DdlException {
+        metastoreProperties.normalizedAndCheckProps();
+        for (StorageProperties storageProperties : storagePropertiesList) {
+            storageProperties.normalizedAndCheckProps();
+        }
     }
 
     public String getOrDefault(String key, String defaultVal) {

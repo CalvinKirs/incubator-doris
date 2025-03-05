@@ -28,10 +28,10 @@ import org.apache.iceberg.catalog.Catalog;
 
 
 public class ExternalMetadataOperations {
-
-    public static HiveMetadataOps newHiveMetadataOps(HiveConf hiveConf, JdbcClientConfig jdbcClientConfig,
+    
+    public static HiveMetadataOps newHiveMetadataOps(HiveConf hiveConf,
                                                      HMSExternalCatalog catalog) {
-        return new HiveMetadataOps(hiveConf, jdbcClientConfig, catalog);
+        return new HiveMetadataOps(hiveConf, catalog);
     }
 
     public static IcebergMetadataOps newIcebergMetadataOps(ExternalCatalog dorisCatalog, Catalog catalog) {
