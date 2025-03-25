@@ -110,6 +110,9 @@ public class S3Properties extends AbstractObjectStorageProperties {
      * @return
      */
     public static boolean guessIsMe(Map<String, String> origProps) {
+        if (origProps.containsKey("s3.access_key") || origProps.containsKey("AWS_ACCESS_KEY")) {
+            return true;
+        }
         List<Field> fields = getIdentifyFields();
         return StorageProperties.checkIdentifierKey(origProps, fields);
     }
