@@ -225,7 +225,7 @@ under the License.
         <doris.hive.catalog.shade.version>2.1.4</doris.hive.catalog.shade.version>
         <avro.version>1.11.4</avro.version>
         <parquet.version>1.13.1</parquet.version>
-        <spark.version>3.4.3</spark.version>
+        <spark.version>3.5.5</spark.version>
         <hudi.version>0.15.0</hudi.version>
         <obs.dependency.scope>compile</obs.dependency.scope>
         <cos.dependency.scope>compile</cos.dependency.scope>
@@ -339,7 +339,7 @@ under the License.
         <httpcore.version>4.4.15</httpcore.version>
         <aws-java-sdk.version>1.12.669</aws-java-sdk.version>
         <mariadb-java-client.version>3.0.9</mariadb-java-client.version>
-        <hadoop.version>3.3.6</hadoop.version>
+        <hadoop.version>3.4.1</hadoop.version>
         <hadoop.thirdparty.guava.version>1.2.0</hadoop.thirdparty.guava.version>
         <hadoop.thirdparty.protobuf_3_7.version>1.1.1</hadoop.thirdparty.protobuf_3_7.version>
         <hbase.version>2.4.9</hbase.version>
@@ -354,6 +354,7 @@ under the License.
         <velocity-engine-core.version>2.4</velocity-engine-core.version>
         <ranger-plugins-common.version>2.4.0</ranger-plugins-common.version>
         <bcprov-jdk15on.version>1.70</bcprov-jdk15on.version>
+        <bcprov-jdk18on.version>1.80</bcprov-jdk18on.version>
         <woodstox.version>6.5.1</woodstox.version>
         <kerby.version>2.0.3</kerby.version>
         <jettison.version>1.5.4</jettison.version>
@@ -1584,43 +1585,42 @@ under the License.
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
-                <artifactId>arrow-vector</artifactId>
+                <artifactId>arrow-bom</artifactId>
                 <version>${arrow.version}</version>
+                <scope>import</scope>
+                <type>pom</type>
+            </dependency>
+            <dependency>
+                <groupId>org.apache.arrow</groupId>
+                <artifactId>arrow-vector</artifactId>
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-memory-netty</artifactId>
-                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-memory-netty-buffer-patch</artifactId>
-                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>flight-core</artifactId>
-                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>flight-sql</artifactId>
-                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>flight-sql-jdbc-driver</artifactId>
-                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-memory-core</artifactId>
-                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.apache.arrow</groupId>
                 <artifactId>arrow-jdbc</artifactId>
-                <version>${arrow.version}</version>
             </dependency>
             <dependency>
                 <groupId>org.immutables</groupId>
@@ -1691,6 +1691,11 @@ under the License.
                 <groupId>org.bouncycastle</groupId>
                 <artifactId>bcprov-jdk15on</artifactId>
                 <scope>test</scope>
+            </dependency>
+            <dependency>
+                <groupId>org.bouncycastle</groupId>
+                <artifactId>bcprov-jdk18on</artifactId>
+                <version>${bcprov-jdk18on.version}</version>
             </dependency>
             <dependency>
                 <groupId>com.azure</groupId>
