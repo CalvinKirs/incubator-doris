@@ -20,9 +20,9 @@ package org.apache.doris.fsv2.remote;
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.FileSystemCache;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fsv2.FileSystem;
+import org.apache.doris.fsv2.FileSystemCache;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
 import java.util.List;
 import java.util.Map;
@@ -104,12 +104,12 @@ public class SwitchingFileSystem implements FileSystem {
     }
 
     @Override
-    public Status listFiles(String remotePath, boolean recursive, List<org.apache.doris.fs.remote.RemoteFile> result) {
+    public Status listFiles(String remotePath, boolean recursive, List<RemoteFile> result) {
         return fileSystem(remotePath).listFiles(remotePath, recursive, result);
     }
 
     @Override
-    public Status globList(String remotePath, List<org.apache.doris.fs.remote.RemoteFile> result) {
+    public Status globList(String remotePath, List<RemoteFile> result) {
         return fileSystem(remotePath).globList(remotePath, result);
     }
 

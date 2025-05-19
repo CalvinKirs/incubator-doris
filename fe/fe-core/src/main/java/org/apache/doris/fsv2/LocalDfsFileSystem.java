@@ -19,8 +19,8 @@ package org.apache.doris.fsv2;
 
 import com.google.common.collect.ImmutableSet;
 import org.apache.doris.backup.Status;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fsv2.FileSystem;
+import org.apache.doris.fsv2.remote.RemoteFile;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileStatus;
