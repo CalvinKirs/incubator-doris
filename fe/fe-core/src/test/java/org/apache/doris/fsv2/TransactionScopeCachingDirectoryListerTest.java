@@ -18,10 +18,10 @@
 // https://github.com/trinodb/trino/blob/438/plugin/trino-hive/src/test/java/io/trino/plugin/hive/fs/TestTransactionScopeCachingDirectoryLister.java
 // and modified by Doris
 
-package org.apache.doris.fs;
+package org.apache.doris.fsv2;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;

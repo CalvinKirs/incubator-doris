@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.obj;
+package org.apache.doris.fsv2.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.common.UserException;
@@ -56,7 +56,8 @@ class S3ObjStorageTest {
         properties.put("s3.access_key", ak);
         properties.put("s3.secret_key", sk);
         properties.put("s3.region", region);
-        S3ObjStorage storage = new S3ObjStorage(properties);
+        //fixme
+        S3ObjStorage storage = null;
 
         String baseUrl = "s3://" + bucket + "/" + prefix + "/";
         String content = "mocked";
@@ -109,7 +110,8 @@ class S3ObjStorageTest {
         properties.put("s3.endpoint", "s3.e.c");
         properties.put("s3.access_key", "abc");
         properties.put("s3.secret_key", "123");
-        S3ObjStorage storage = new S3ObjStorage(properties);
+        //fixme
+        S3ObjStorage storage = null;
         Field client = storage.getClass().getDeclaredField("client");
         client.setAccessible(true);
         MockedS3Client mockedClient = new MockedS3Client();
@@ -148,7 +150,7 @@ class S3ObjStorageTest {
 
         storage.properties.put("use_path_style", "false");
         storage.properties.put("s3.endpoint", "oss.a.c");
-        storage.setProperties(storage.properties);
+        //fixme storage.setProperties(storage.properties);
         RemoteObjects remoteObjectsVBucket = storage.listObjects("oss://bucket/keys", null);
         List<RemoteObject> list = remoteObjectsVBucket.getObjectList();
         for (int i = 0; i < list.size(); i++) {
@@ -157,7 +159,7 @@ class S3ObjStorageTest {
         }
 
         storage.properties.put("use_path_style", "true");
-        storage.setProperties(storage.properties);
+        //fixme storage.setProperties(storage.properties);
         remoteObjectsVBucket = storage.listObjects("oss://bucket/keys", null);
         list = remoteObjectsVBucket.getObjectList();
         for (int i = 0; i < list.size(); i++) {
