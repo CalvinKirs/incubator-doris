@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.obj;
+package org.apache.doris.fsv2.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.obj.AzureObjStorage;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import com.azure.core.http.HttpHeaders;
@@ -97,7 +98,7 @@ public class AzureObjStorageTest {
 
         List<I> inputs = genInputs();
         inputs.stream().forEach(i -> {
-            AzureObjStorage azs = new AzureObjStorage(props);
+            org.apache.doris.fs.obj.AzureObjStorage azs = new org.apache.doris.fs.obj.AzureObjStorage(props);
             List<RemoteFile> result = new ArrayList<RemoteFile>();
             boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
@@ -117,7 +118,7 @@ public class AzureObjStorageTest {
 
         List<I> inputs = genInputs();
         inputs.stream().forEach(i -> {
-            AzureObjStorage azs = genMockedAzureObjStorage(4/*numBatches, numContinuations*/);
+            org.apache.doris.fs.obj.AzureObjStorage azs = genMockedAzureObjStorage(4/*numBatches, numContinuations*/);
             List<RemoteFile> result = new ArrayList<RemoteFile>();
             boolean fileNameOnly = false;
             // FIXME(gavin): Mock the result returned from azure blob to make this UT work when no aksk and network
@@ -176,7 +177,7 @@ public class AzureObjStorageTest {
 
     @Test
     public void testMockObj() {
-        AzureObjStorage azs = genMockedAzureObjStorage(2);
+        org.apache.doris.fs.obj.AzureObjStorage azs = genMockedAzureObjStorage(2);
         List<RemoteFile> result = new ArrayList<RemoteFile>();
         boolean fileNameOnly = false;
         Status st = azs.globList("s3://gavin-test-jp/azure-test/1/*", result, fileNameOnly);
@@ -193,16 +194,16 @@ public class AzureObjStorageTest {
      * @param numBatch control how many PagedResponse will return when calling getPagedBlobItems()
      * @return a mocked AzureObjStorage
      */
-    public static AzureObjStorage genMockedAzureObjStorage(int numBatch) {
+    public static org.apache.doris.fs.obj.AzureObjStorage genMockedAzureObjStorage(int numBatch) {
         Map<String, String> props = new HashMap<String, String>();
         props.put(S3Properties.ACCESS_KEY, "gavintestus");
         props.put(S3Properties.SECRET_KEY, "sksksksksksksk");
         props.put(S3Properties.ENDPOINT, "https://blob.azure.windows.net");
         props.put(S3Properties.BUCKET, "gavin-test-us");
-        AzureObjStorage azs = new AzureObjStorage(props);
+        org.apache.doris.fs.obj.AzureObjStorage azs = new org.apache.doris.fs.obj.AzureObjStorage(props);
         List<String> allBlobKeys = genObjectKeys();
         final Integer[] batchIndex = {0}; // from 0 to numBatch
-        new MockUp<AzureObjStorage>(AzureObjStorage.class) {
+        new MockUp<org.apache.doris.fs.obj.AzureObjStorage>(AzureObjStorage.class) {
             @Mock
             public PagedResponse<BlobItem> getPagedBlobItems(BlobContainerClient client, ListBlobsOptions options,
                                                              String newContinuationToken) {

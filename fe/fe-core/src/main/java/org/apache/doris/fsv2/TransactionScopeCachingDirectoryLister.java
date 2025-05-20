@@ -28,8 +28,8 @@ import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import org.apache.commons.collections.ListUtils;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fs.FileSystem;
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fsv2.FileSystem;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -67,12 +67,12 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     @Override
-    public RemoteIterator<RemoteFile> listFiles(org.apache.doris.fs.FileSystem fs, boolean recursive, TableIf table, String location)
+    public RemoteIterator<RemoteFile> listFiles(FileSystem fs, boolean recursive, TableIf table, String location)
             throws FileSystemIOException {
         return listInternal(fs, recursive, table, new TransactionDirectoryListingCacheKey(transactionId, location));
     }
 
-    private RemoteIterator<RemoteFile> listInternal(org.apache.doris.fs.FileSystem fs, boolean recursive, TableIf table,
+    private RemoteIterator<RemoteFile> listInternal(FileSystem fs, boolean recursive, TableIf table,
                                                     TransactionDirectoryListingCacheKey cacheKey) throws FileSystemIOException {
         FetchingValueHolder cachedValueHolder;
         try {

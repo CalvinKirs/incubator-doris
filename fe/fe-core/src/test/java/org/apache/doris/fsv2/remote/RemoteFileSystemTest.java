@@ -15,7 +15,7 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.remote;
+package org.apache.doris.fsv2.remote;
 
 import org.apache.doris.common.Pair;
 import org.apache.doris.common.UserException;
@@ -24,6 +24,8 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.common.util.LocationPath;
+import org.apache.doris.fsv2.remote.RemoteFileSystem;
+import org.apache.doris.fsv2.remote.S3FileSystem;
 import org.apache.doris.fsv2.FileSystemCache;
 import org.apache.doris.fsv2.FileSystemType;
 import org.apache.doris.fsv2.remote.dfs.DFSFileSystem;

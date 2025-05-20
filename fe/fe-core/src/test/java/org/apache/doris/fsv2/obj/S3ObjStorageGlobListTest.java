@@ -15,10 +15,11 @@
 // specific language governing permissions and limitations
 // under the License.
 
-package org.apache.doris.fs.obj;
+package org.apache.doris.fsv2.obj;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.datasource.property.constants.S3Properties;
+import org.apache.doris.fs.obj.S3ObjStorage;
 import org.apache.doris.fs.remote.RemoteFile;
 
 import mockit.Mock;
@@ -121,14 +122,14 @@ public class S3ObjStorageGlobListTest {
         }
     }
 
-    public static S3ObjStorage genMockedS3ObjStorage(int numBatch) {
+    public static org.apache.doris.fs.obj.S3ObjStorage genMockedS3ObjStorage(int numBatch) {
         Map<String, String> props = new HashMap<String, String>();
         props.put(S3Properties.ROLE_ARN, "test_mocked_arn");
         props.put(S3Properties.ENDPOINT, "https://s3.us-east-1.amazonaws.com");
         props.put(S3Properties.BUCKET, "test_mocked_bucket");
         List<String> allObjKeys = genObjKeys();
 
-        new MockUp<S3ObjStorage>(S3ObjStorage.class) {
+        new MockUp<org.apache.doris.fs.obj.S3ObjStorage>(org.apache.doris.fs.obj.S3ObjStorage.class) {
             @Mock
             ListObjectsV2Response listObjectsV2(ListObjectsV2Request listObjectsV2Request) {
                 ListObjectsV2Response.Builder builder = ListObjectsV2Response.builder();
@@ -160,7 +161,7 @@ public class S3ObjStorageGlobListTest {
             }
         };
 
-        S3ObjStorage s3ObjStorage = new S3ObjStorage(props);
+        org.apache.doris.fs.obj.S3ObjStorage s3ObjStorage = new org.apache.doris.fs.obj.S3ObjStorage(props);
         return s3ObjStorage;
     }
 

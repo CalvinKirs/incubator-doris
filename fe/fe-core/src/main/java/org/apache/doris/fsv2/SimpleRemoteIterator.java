@@ -18,7 +18,7 @@
 
 package org.apache.doris.fsv2;
 
-import org.apache.doris.fs.remote.RemoteFile;
+import org.apache.doris.fsv2.remote.RemoteFile;
 
 import java.util.Iterator;
 import java.util.Objects;
