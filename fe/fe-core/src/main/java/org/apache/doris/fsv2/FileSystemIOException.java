@@ -19,9 +19,9 @@ package org.apache.doris.fsv2;
 
 import org.apache.doris.backup.Status.ErrCode;
 
-import javax.annotation.Nullable;
 import java.io.IOException;
 import java.util.Optional;
+import javax.annotation.Nullable;
 
 public class FileSystemIOException extends IOException {
 

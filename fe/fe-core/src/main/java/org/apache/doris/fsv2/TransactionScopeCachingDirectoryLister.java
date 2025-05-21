@@ -20,6 +20,9 @@
 
 package org.apache.doris.fsv2;
 
+import org.apache.doris.catalog.TableIf;
+import org.apache.doris.fsv2.remote.RemoteFile;
+
 import com.google.common.annotations.VisibleForTesting;
 import com.google.common.base.Preconditions;
 import com.google.common.base.Throwables;
@@ -27,11 +30,7 @@ import com.google.common.cache.Cache;
 import com.google.common.util.concurrent.UncheckedExecutionException;
 import com.google.errorprone.annotations.concurrent.GuardedBy;
 import org.apache.commons.collections.ListUtils;
-import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fsv2.FileSystem;
-import org.apache.doris.fsv2.remote.RemoteFile;
 
-import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
@@ -39,6 +38,7 @@ import java.util.NoSuchElementException;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.concurrent.ExecutionException;
+import javax.annotation.Nullable;
 
 /**
  * Caches directory content (including listings that were started concurrently).
@@ -60,7 +60,8 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     private final DirectoryLister delegate;
 
     public TransactionScopeCachingDirectoryLister(DirectoryLister delegate, long transactionId,
-                                                  Cache<TransactionDirectoryListingCacheKey, FetchingValueHolder> cache) {
+                                                  Cache<TransactionDirectoryListingCacheKey,
+                                                          FetchingValueHolder> cache) {
         this.delegate = Objects.requireNonNull(delegate, "delegate is null");
         this.transactionId = transactionId;
         this.cache = Objects.requireNonNull(cache, "cache is null");
@@ -73,7 +74,8 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     private RemoteIterator<RemoteFile> listInternal(FileSystem fs, boolean recursive, TableIf table,
-                                                    TransactionDirectoryListingCacheKey cacheKey) throws FileSystemIOException {
+                                                    TransactionDirectoryListingCacheKey cacheKey)
+            throws FileSystemIOException {
         FetchingValueHolder cachedValueHolder;
         try {
             cachedValueHolder = cache.get(cacheKey,
@@ -93,7 +95,8 @@ public class TransactionScopeCachingDirectoryLister implements DirectoryLister {
     }
 
     private RemoteIterator<RemoteFile> createListingRemoteIterator(FileSystem fs, boolean recursive,
-                                                                   TableIf table, TransactionDirectoryListingCacheKey cacheKey)
+                                                                   TableIf table,
+                                                                   TransactionDirectoryListingCacheKey cacheKey)
             throws FileSystemIOException {
         return delegate.listFiles(fs, recursive, table, cacheKey.getPath());
     }

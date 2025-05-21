@@ -19,7 +19,6 @@ package org.apache.doris.fsv2;
 
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.fsv2.FileSystem;
 import org.apache.doris.fsv2.remote.SwitchingFileSystem;
 
 import java.util.Map;

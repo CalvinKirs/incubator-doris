@@ -22,7 +22,6 @@ import org.apache.doris.common.util.LocationPath;
 import org.apache.doris.datasource.ExternalMetaCacheMgr;
 import org.apache.doris.fsv2.FileSystem;
 import org.apache.doris.fsv2.FileSystemCache;
-import org.apache.doris.fsv2.remote.RemoteFile;
 
 import java.util.List;
 import java.util.Map;

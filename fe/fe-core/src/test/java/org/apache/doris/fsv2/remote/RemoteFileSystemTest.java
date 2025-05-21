@@ -24,8 +24,6 @@ import org.apache.doris.common.security.authentication.HadoopAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopKerberosAuthenticator;
 import org.apache.doris.common.security.authentication.HadoopSimpleAuthenticator;
 import org.apache.doris.common.util.LocationPath;
-import org.apache.doris.fsv2.remote.RemoteFileSystem;
-import org.apache.doris.fsv2.remote.S3FileSystem;
 import org.apache.doris.fsv2.FileSystemCache;
 import org.apache.doris.fsv2.FileSystemType;
 import org.apache.doris.fsv2.remote.dfs.DFSFileSystem;

@@ -20,9 +20,10 @@
 
 package org.apache.doris.fsv2;
 
-import com.google.common.cache.Cache;
 import org.apache.doris.common.EvictableCacheBuilder;
 import org.apache.doris.fsv2.TransactionScopeCachingDirectoryLister.FetchingValueHolder;
+
+import com.google.common.cache.Cache;
 
 import java.util.Optional;
 import java.util.concurrent.atomic.AtomicLong;

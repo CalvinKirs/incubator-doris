@@ -18,7 +18,7 @@
 package org.apache.doris.fsv2;
 
 import org.apache.doris.backup.Status;
-import org.apache.doris.fsv2.FileSystem;
+
 import org.apache.hadoop.fs.Path;
 
 import java.util.List;

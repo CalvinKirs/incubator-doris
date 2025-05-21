@@ -19,7 +19,6 @@ package org.apache.doris.fsv2;
 
 import org.apache.doris.backup.Status;
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fsv2.FileSystem;
 import org.apache.doris.fsv2.remote.RemoteFile;
 
 import java.util.ArrayList;

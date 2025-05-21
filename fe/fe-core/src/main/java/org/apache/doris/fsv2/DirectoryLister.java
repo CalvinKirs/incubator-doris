@@ -21,7 +21,6 @@
 package org.apache.doris.fsv2;
 
 import org.apache.doris.catalog.TableIf;
-import org.apache.doris.fsv2.FileSystem;
 import org.apache.doris.fsv2.remote.RemoteFile;
 
 public interface DirectoryLister {

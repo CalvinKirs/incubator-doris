@@ -18,7 +18,6 @@
 package org.apache.doris.fsv2;
 
 import org.apache.doris.datasource.SessionContext;
-import org.apache.doris.fsv2.FileSystem;
 
 public interface FileSystemProvider {
     FileSystem get(SessionContext ctx);

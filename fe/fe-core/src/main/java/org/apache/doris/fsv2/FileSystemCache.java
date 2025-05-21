@@ -17,13 +17,12 @@
 
 package org.apache.doris.fsv2;
 
-import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.doris.common.CacheFactory;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.Pair;
-import org.apache.doris.fsv2.FileSystemFactory;
-import org.apache.doris.fsv2.FileSystemType;
 import org.apache.doris.fsv2.remote.RemoteFileSystem;
+
+import com.github.benmanes.caffeine.cache.LoadingCache;
 import org.apache.hadoop.conf.Configuration;
 
 import java.util.HashMap;
