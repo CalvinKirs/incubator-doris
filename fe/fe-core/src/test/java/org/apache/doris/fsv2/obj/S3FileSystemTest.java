@@ -24,7 +24,6 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
-import org.apache.doris.fs.obj.MockedS3Client;
 import org.apache.doris.fsv2.FileSystemFactory;
 import org.apache.doris.fsv2.remote.RemoteFile;
 import org.apache.doris.fsv2.remote.S3FileSystem;
