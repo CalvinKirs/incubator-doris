@@ -25,6 +25,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.common.util.PrintableMap;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.datasource.property.storage.exception.StoragePropertiesException;
 import org.apache.doris.persist.gson.GsonUtils;
 import org.apache.doris.thrift.TFileType;
 
@@ -86,19 +87,20 @@ public class BrokerDesc extends StorageDesc implements Writable {
         }
 
         // Try to determine the actual storage type from properties if available
-        if (MapUtils.isNotEmpty(properties)) {
+        if (MapUtils.isNotEmpty(this.properties)) {
             try {
                 // Create primary storage properties from the given configuration
-                this.storageProperties = StorageProperties.createPrimary(properties);
+                this.storageProperties = StorageProperties.createPrimary(this.properties);
                 // Override the storage type based on property configuration
                 this.storageType = StorageBackend.StorageType.valueOf(storageProperties.getStorageName());
-            } catch (RuntimeException e) {
+            } catch (StoragePropertiesException e) {
                 // Currently ignored: these properties might be broker-specific.
                 // Support for broker properties will be added in the future.
                 LOG.info("Failed to create storage properties for broker: {}, properties: {}", name, properties, e);
             }
         }
-        if (StringUtils.isBlank(this.name)) {
+        //only storage type is broker
+        if (StringUtils.isBlank(this.name) && (this.getStorageType() != StorageType.BROKER)) {
             this.name = this.storageType().name();
         }
     }
@@ -110,16 +112,10 @@ public class BrokerDesc extends StorageDesc implements Writable {
         if (properties != null) {
             this.properties.putAll(properties);
         }
-        if (MapUtils.isNotEmpty(properties)) {
-            try {
-                if (StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
-                    this.storageProperties = StorageProperties.createPrimary(properties);
-                }
-            } catch (Exception e) {
-                throw new RuntimeException("Failed to create storage properties for broker: "
-                        + name + ", error msg is: " + e.getMessage(), e);
-            }
+        if (MapUtils.isNotEmpty(this.properties) && StorageType.REFACTOR_STORAGE_TYPES.contains(storageType)) {
+            this.storageProperties = StorageProperties.createPrimary(properties);
         }
+
     }
 
     public String getFileLocation(String location) throws UserException {

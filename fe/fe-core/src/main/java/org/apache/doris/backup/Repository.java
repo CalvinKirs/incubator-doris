@@ -132,18 +132,28 @@ public class Repository implements Writable, GsonPostProcessable {
     private String location;
 
     @SerializedName("fs")
+    private org.apache.doris.fs.PersistentFileSystem oldfs;
+
+    // Temporary field: currently still using the legacy fs config (oldfs).
+    // This field can be removed once the new fs configuration is fully enabled.
     private PersistentFileSystem fileSystem;
+
+    public org.apache.doris.fs.PersistentFileSystem getOldfs() {
+        return oldfs;
+    }
 
     private Repository() {
         // for persist
     }
 
-    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem) {
+    public Repository(long id, String name, boolean isReadOnly, String location, RemoteFileSystem fileSystem,
+                      org.apache.doris.fs.PersistentFileSystem oldFs) {
         this.id = id;
         this.name = name;
         this.isReadOnly = isReadOnly;
         this.location = location;
         this.fileSystem = fileSystem;
+        this.oldfs = oldFs;
         this.createTime = System.currentTimeMillis();
     }
 
@@ -203,6 +213,7 @@ public class Repository implements Writable, GsonPostProcessable {
         }
     }
 
+    //todo why only support alter S3 properties
     public Status alterRepositoryS3Properties(Map<String, String> properties) {
         if (this.fileSystem instanceof S3FileSystem) {
             Map<String, String> oldProperties = new HashMap<>(this.getRemoteFileSystem().getProperties());
@@ -236,8 +247,17 @@ public class Repository implements Writable, GsonPostProcessable {
 
     @Override
     public void gsonPostProcess() {
-        if (!BrokerFileSystem.class.equals(fileSystem.getClass())) {
-            StorageProperties storageProperties = StorageProperties.createPrimary(this.fileSystem.properties);
+        StorageBackend.StorageType type = StorageBackend.StorageType.BROKER;
+        if (this.oldfs.properties.containsKey(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE)) {
+            type = StorageBackend.StorageType.valueOf(
+                    this.oldfs.properties.get(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE));
+            this.oldfs.properties.remove(org.apache.doris.fs.PersistentFileSystem.STORAGE_TYPE);
+        }
+        this.oldfs = org.apache.doris.fs.FileSystemFactory.get(this.oldfs.getName(),
+                type,
+                this.oldfs.getProperties());
+        if (!type.equals(StorageBackend.StorageType.BROKER)) {
+            StorageProperties storageProperties = StorageProperties.createPrimary(this.oldfs.properties);
             this.fileSystem = FileSystemFactory.get(storageProperties);
         }
     }
@@ -847,7 +867,13 @@ public class Repository implements Writable, GsonPostProcessable {
         name = Text.readString(in);
         isReadOnly = in.readBoolean();
         location = Text.readString(in);
-        fileSystem = PersistentFileSystem.read(in);
+        oldfs = org.apache.doris.fs.PersistentFileSystem.read(in);
+        try {
+            fileSystem = FileSystemFactory.get(oldfs.getStorageType(), oldfs.getProperties());
+        } catch (UserException e) {
+            // do we ignore this exception?
+            throw new IOException("Failed to create file system: " + e.getMessage());
+        }
         createTime = in.readLong();
     }
 }

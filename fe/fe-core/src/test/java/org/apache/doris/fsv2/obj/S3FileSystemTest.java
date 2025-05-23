@@ -24,6 +24,7 @@ import org.apache.doris.common.util.S3URI;
 import org.apache.doris.datasource.property.PropertyConverter;
 import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.fs.obj.MockedS3Client;
 import org.apache.doris.fsv2.FileSystemFactory;
 import org.apache.doris.fsv2.remote.RemoteFile;
 import org.apache.doris.fsv2.remote.S3FileSystem;
@@ -170,7 +171,8 @@ public class S3FileSystemTest {
 
     @Test
     public void testRepositoryUpload() throws IOException {
-        Repository repo = new Repository(10000, "repo", false, bucket + basePath, fileSystem);
+        Repository repo = new Repository(10000, "repo", false, bucket + basePath, fileSystem,
+                null);
         File localFile = File.createTempFile("s3unittest", ".dat");
         localFile.deleteOnExit();
         String remote = bucket + basePath + "/" + localFile.getName();
