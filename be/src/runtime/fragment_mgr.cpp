@@ -787,9 +787,9 @@ Status FragmentMgr::start_query_execution(const PExecPlanFragmentStartRequest* r
         q_ctx = _query_ctx_map.find(query_id);
         if (q_ctx == nullptr) {
             return Status::InternalError(
-                    "Failed to get query fragments context. Query may be "
+                    "Failed to get query fragments context. Query {} may be "
                     "timeout or be cancelled. host: {}",
-                    BackendOptions::get_localhost());
+                    print_id(query_id), BackendOptions::get_localhost());
         }
     }
     q_ctx->set_ready_to_execute(false);
@@ -829,9 +829,9 @@ Status FragmentMgr::_get_query_ctx(const Params& params, TUniqueId query_id, boo
         query_ctx = _query_ctx_map.find(query_id);
         if (query_ctx == nullptr) {
             return Status::InternalError(
-                    "Failed to get query fragments context. Query may be "
+                    "Failed to get query fragments context. Query {} may be "
                     "timeout or be cancelled. host: {}",
-                    BackendOptions::get_localhost());
+                    print_id(query_id), BackendOptions::get_localhost());
         }
     } else {
         // Find _query_ctx_map, in case some other request has already
