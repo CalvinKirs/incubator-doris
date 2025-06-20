@@ -1574,10 +1574,12 @@ void FragmentMgr::_check_brpc_available(const std::shared_ptr<PBackendService_St
             for (const auto& query_wptr : brpc_item.queries) {
                 auto query = query_wptr.lock();
                 if (query && !query->is_cancelled()) {
-                    cancel_query(query->query_id(), PPlanFragmentCancelReason::INTERNAL_ERROR,
-                                 fmt::format("brpc(dest: {}:{}) check failed: {}",
-                                             brpc_item.network_address.hostname,
-                                             brpc_item.network_address.port, error_message));
+                    cancel_query(
+                            query->query_id(), PPlanFragmentCancelReason::INTERNAL_ERROR,
+                            fmt::format(
+                                    "network connection check failed dest host: {}:{}, reason: {}",
+                                    brpc_item.network_address.hostname,
+                                    brpc_item.network_address.port, error_message));
                 }
             }
 

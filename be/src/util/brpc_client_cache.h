@@ -206,15 +206,15 @@ public:
         brpc::Controller cntl;
         stub->hand_shake(&cntl, &request, &response, nullptr);
         if (cntl.Failed()) {
-            LOG(WARNING) << "open brpc connection to " << host_port
-                         << " failed: " << cntl.ErrorText();
+            LOG(WARNING) << "network connection handshake failed, host: " << host_port
+                         << " reason: " << cntl.ErrorText() << ", reconnect later.";
             return false;
         } else if (response.has_status() && response.has_hello() && response.hello() == message &&
                    response.status().status_code() == 0) {
             return true;
         } else {
-            LOG(WARNING) << "open brpc connection to " << host_port
-                         << " failed: " << response.DebugString();
+            LOG(WARNING) << "network connection handshake failed, host: " << host_port
+                         << " reason: " << response.DebugString() << ", reconnect later.";
             return false;
         }
     }
