@@ -74,6 +74,55 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             description = "Enable public access to Aliyun DLF.")
     protected String dlfAccessPublic = "false";
 
+    @Getter
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "session_token"},
+            required = false,
+            description = "The session token of OSS.")
+    protected String sessionToken = "";
+
+    /**
+     * The maximum number of concurrent connections that can be made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.maximum", "s3.connection.maximum"}, required = false,
+            description = "Maximum number of connections.")
+    protected String maxConnections = "100";
+
+    /**
+     * The timeout (in milliseconds) for requests made to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.request.timeout", "s3.connection.request.timeout"}, required = false,
+            description = "Request timeout in seconds.")
+    protected String requestTimeoutS = "10000";
+
+    /**
+     * The timeout (in milliseconds) for establishing a connection to the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Getter
+    @ConnectorProperty(names = {"oss.connection.timeout", "s3.connection.timeout"}, required = false,
+            description = "Connection timeout in seconds.")
+    protected String connectionTimeoutS = "10000";
+
+    /**
+     * Flag indicating whether to use path-style URLs for the object storage system.
+     * This value is optional and can be configured by the user.
+     */
+    @Setter
+    @Getter
+    @ConnectorProperty(names = {"oss.use_path_style", "use_path_style", "s3.path-style-access"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    protected String usePathStyle = "false";
+
+    @ConnectorProperty(names = {"oss.force_parsing_by_standard_uri", "force_parsing_by_standard_uri"}, required = false,
+            description = "Whether to use path style URL for the storage.")
+    @Setter
+    @Getter
+    protected String forceParsingByStandardUrl = "false";
+
     /**
      * Pattern to extract the region from an Alibaba Cloud OSS endpoint.
      * <p>
@@ -120,6 +169,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
             return (value.contains("aliyuncs.com"));
         }
 
+        if (isDlfMSType(origProps)) {
+            return true;
+        }
         Optional<String> uriValue = origProps.entrySet().stream()
                 .filter(e -> URI_KEYWORDS.stream()
                         .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
@@ -129,6 +181,9 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
                 .findFirst();
         return uriValue.filter(OSSProperties::isKnownObjectStorage).isPresent();
     }
+
+    private static List<String> DLF_TYPE_KEYWORDS = Arrays.asList("hive.metastore.type",
+            "iceberg.catalog.type", "paimon.catalog.type");
 
     private static boolean isKnownObjectStorage(String value) {
         if (value == null) {
@@ -146,9 +201,18 @@ public class OSSProperties extends AbstractS3CompatibleProperties {
         return isAliyunOss || isAmazonS3 || isDls;
     }
 
+    private static boolean isDlfMSType(Map<String, String> params) {
+        return DLF_TYPE_KEYWORDS.stream()
+                .anyMatch(key -> params.containsKey(key) && StringUtils.isNotBlank(params.get(key))
+                        && StringUtils.equalsIgnoreCase("dlf", params.get(key)));
+    }
+
     @Override
     protected void checkEndpoint() {
         if (StringUtils.isBlank(this.endpoint) && StringUtils.isNotBlank(this.region)) {
+            if (isDlfMSType(origProps)) {
+                this.endpoint = getOssEndpoint(region, BooleanUtils.toBoolean(dlfAccessPublic));
+            }
             Optional<String> uriValueOpt = origProps.entrySet().stream()
                     .filter(e -> URI_KEYWORDS.stream()
                             .anyMatch(key -> key.equalsIgnoreCase(e.getKey())))
