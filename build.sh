@@ -44,8 +44,6 @@ Usage: $0 <options>
      --meta-tool            build Backend meta tool. Default OFF.
      --index-tool           build Backend inverted index tool. Default OFF.
      --broker               build Broker. Default ON.
-     --spark-dpp            build Spark DPP application. Default ON.
-     --hive-udf             build Hive UDF library for Spark Load. Default ON.
      --be-java-extensions   build Backend java extensions. Default ON.
      --be-extension-ignore  build be-java-extensions package, choose which modules to ignore. Multiple modules separated by commas.
      --clean                clean and build target
@@ -64,7 +62,6 @@ Usage: $0 <options>
     $0 --index-tool                         build Backend inverted index tool
     $0 --fe --clean                         clean and build Frontend and Spark Dpp application
     $0 --fe --be --clean                    clean and build Frontend, Spark Dpp application and Backend
-    $0 --spark-dpp                          build Spark DPP application alone
     $0 --broker                             build Broker
     $0 --be --fe                            build Backend, Frontend, Spark Dpp application and Java UDF library
     $0 --be --coverage                      build Backend with coverage enabled
@@ -120,8 +117,6 @@ if ! OPTS="$(getopt \
     -l 'broker' \
     -l 'meta-tool' \
     -l 'index-tool' \
-    -l 'spark-dpp' \
-    -l 'hive-udf' \
     -l 'be-java-extensions' \
     -l 'be-extension-ignore:' \
     -l 'clean' \
@@ -186,14 +181,6 @@ else
             ;;
         --index-tool)
             BUILD_INDEX_TOOL='ON'
-            shift
-            ;;
-        --spark-dpp)
-            BUILD_SPARK_DPP=1
-            shift
-            ;;
-        --hive-udf)
-            BUILD_HIVE_UDF=1
             shift
             ;;
         --be-java-extensions)
@@ -469,11 +456,9 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
 fi
 if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
     modules+=("fe-common")
-    modules+=("spark-dpp")
 fi
 if [[ "${BUILD_HIVE_UDF}" -eq 1 ]]; then
     modules+=("fe-common")
-    modules+=("hive-udf")
 fi
 if [[ "${BUILD_BE_JAVA_EXTENSIONS}" -eq 1 ]]; then
     modules+=("fe-common")
@@ -656,11 +641,6 @@ if [[ "${BUILD_FE}" -eq 1 ]]; then
     mkdir -p "${DORIS_OUTPUT}/fe/conf/ssl"
 fi
 
-if [[ "${BUILD_SPARK_DPP}" -eq 1 ]]; then
-    install -d "${DORIS_OUTPUT}/fe/spark-dpp"
-    rm -rf "${DORIS_OUTPUT}/fe/spark-dpp"/*
-    cp -r -p "${DORIS_HOME}/fe/spark-dpp/target"/spark-dpp-*-jar-with-dependencies.jar "${DORIS_OUTPUT}/fe/spark-dpp"/
-fi
 
 if [[ "${OUTPUT_BE_BINARY}" -eq 1 ]]; then
     # need remove old version hadoop jars if $DORIS_OUTPUT be used multiple times, otherwise will cause jar conflict
