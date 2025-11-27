@@ -338,15 +338,9 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
      */
     public void toFileIOProperties(List<StorageProperties> storagePropertiesList,
             Map<String, String> fileIOProperties, Configuration conf) {
-
         for (StorageProperties storageProperties : storagePropertiesList) {
-            if (storageProperties instanceof AbstractS3CompatibleProperties) {
-                // For all S3-compatible storage types, put properties in fileIOProperties map
-                toS3FileIOProperties((AbstractS3CompatibleProperties) storageProperties, fileIOProperties);
-            } else {
-                // For other storage types, just use fileIOProperties map
-                conf.addResource(storageProperties.getHadoopStorageConfig());
-            }
+            // For other storage types, just use fileIOProperties map
+            conf.addResource(storageProperties.getHadoopStorageConfig());
         }
 
     }

@@ -25,6 +25,7 @@ import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import software.amazon.awssdk.auth.credentials.AnonymousCredentialsProvider;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
+import software.amazon.awssdk.core.SdkSystemSetting;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -266,6 +267,17 @@ public class OSSPropertiesTest {
         props.put("fs.oss.impl.disable.cache", "null");
         s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
         Assertions.assertFalse(s3Properties.hadoopStorageConfig.getBoolean("fs.oss.impl.disable.cache", false));
+    }
+    
+    @Test
+    public void testResuestCheckSum() throws UserException {
+        Map<String, String> props = Maps.newHashMap();
+        props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
+        OSSProperties s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("WHEN_REQUIRED",System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
+        System.setProperty("aws.requestChecksumCalculation", "ALWAYS");
+        s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
+        Assertions.assertEquals("ALWAYS",System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
     }
 
 }
