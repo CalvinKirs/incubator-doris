@@ -47,6 +47,10 @@ under the License.
             <artifactId>reflectasm</artifactId>
             <version>1.11.9</version>
         </dependency>
+        <dependency>
+            <groupId>org.apache.doris</groupId>
+            <artifactId>hive-catalog-shade</artifactId>
+        </dependency>
     </dependencies>
 
     <build>
