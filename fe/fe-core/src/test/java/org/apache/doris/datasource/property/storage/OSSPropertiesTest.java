@@ -274,10 +274,10 @@ public class OSSPropertiesTest {
         Map<String, String> props = Maps.newHashMap();
         props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
         OSSProperties s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
-        Assertions.assertEquals("WHEN_REQUIRED",System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
+        Assertions.assertEquals("WHEN_REQUIRED", System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
         System.setProperty("aws.requestChecksumCalculation", "ALWAYS");
         s3Properties = (OSSProperties) StorageProperties.createPrimary(props);
-        Assertions.assertEquals("ALWAYS",System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
+        Assertions.assertEquals("ALWAYS", System.getProperty(SdkSystemSetting.AWS_REQUEST_CHECKSUM_CALCULATION.property()));
     }
 
 }
