@@ -17,14 +17,17 @@
 
 package org.apache.doris.mysql;
 
-import org.apache.doris.common.Config;
 
 import com.google.common.collect.Maps;
+import org.apache.doris.common.Config;
 
 import java.nio.ByteBuffer;
 import java.util.Map;
 
-// MySQL protocol handshake response packet, which contain authenticate information.
+/**
+ * MySQL Protocol Handshake Response Packet.
+ * Supports standard authentication, OIDC, and modern connection attributes.
+ */
 public class MysqlAuthPacket extends MysqlPacket {
     private int maxPacketSize;
     private int characterSet;
@@ -66,62 +69,82 @@ public class MysqlAuthPacket extends MysqlPacket {
 
     @Override
     public boolean readFrom(ByteBuffer buffer) {
-        // read capability four byte, which CLIENT_PROTOCOL_41 must be set
-        capability = new MysqlCapability(MysqlProto.readInt4(buffer));
+        // 1. Read capability flags (4 bytes) - CLIENT_PROTOCOL_41 is mandatory
+        int flags = MysqlProto.readInt4(buffer);
+        capability = new MysqlCapability(flags);
+
         if (!capability.isProtocol41()) {
             return false;
         }
-        // max packet size
+
+        // 2. Read basic connection parameters
         maxPacketSize = MysqlProto.readInt4(buffer);
-        // character set. only support 33(utf-8)?
         characterSet = MysqlProto.readInt1(buffer);
-        // reserved 23 bytes
-        if (new String(MysqlProto.readFixedString(buffer, 3)).equals(Config.proxy_auth_magic_prefix)) {
+
+        // 3. Handle Reserved 23 bytes (Strict Protocol Alignment)
+        // Standard MySQL protocol reserves 23 bytes here. 
+        // We check for your specific proxy magic prefix.
+        byte[] prefix = new byte[3];
+        buffer.mark();
+        buffer.get(prefix);
+        if (new String(prefix).equals(Config.proxy_auth_magic_prefix)) {
+            // If prefix matches, consume the 20-byte scramble/random string
             randomString = new byte[MysqlPassword.SCRAMBLE_LENGTH];
             buffer.get(randomString);
         } else {
-            buffer.position(buffer.position() + 20);
+            // Otherwise, strictly skip the 23 reserved bytes to align the pointer for userName
+            buffer.reset();
+            buffer.position(buffer.position() + 23);
         }
-        // user name
+
+        // 4. Read User Name (Null-terminated string)
         userName = new String(MysqlProto.readNulTerminateString(buffer));
+
+        // 5. Read Authentication Response (Password or OIDC Token)
+        // This logic branches based on the authentication method negotiated
         if (capability.isPluginAuthDataLengthEncoded()) {
+            // Required for OIDC and modern high-security plugins (Length-Encoded)
             authResponse = MysqlProto.readLenEncodedString(buffer);
         } else if (capability.isSecureConnection()) {
+            // Standard 4.1 auth (e.g., mysql_native_password scramble response)
             int len = MysqlProto.readInt1(buffer);
             authResponse = MysqlProto.readFixedString(buffer, len);
         } else {
+            // Legacy authentication (Null-terminated)
             authResponse = MysqlProto.readNulTerminateString(buffer);
         }
-        // maybe no data anymore
-        // DB to use
-        if (buffer.remaining() > 0 && capability.isConnectedWithDb()) {
+
+        // 6. Read Database Name if CLIENT_CONNECT_WITH_DB is set
+        if (buffer.hasRemaining() && capability.isConnectedWithDb()) {
             database = new String(MysqlProto.readNulTerminateString(buffer));
         }
-        // plugin name to plugin
-        if (buffer.remaining() > 0 && capability.isPluginAuth()) {
+
+        // 7. Read Authentication Plugin Name if CLIENT_PLUGIN_AUTH is set
+        // For OIDC, this will be "authentication_openid_connect_client"
+        if (buffer.hasRemaining() && capability.isPluginAuth()) {
             pluginName = new String(MysqlProto.readNulTerminateString(buffer));
         }
-        // attribute map, no use now.
-        if (buffer.remaining() > 0 && capability.isConnectAttrs()) {
+
+        // 8. Read Connection Attributes if CLIENT_CONNECT_ATTRS is set
+        // Crucial for modern drivers (JDBC/mysqlsh) which send telemetry data
+        if (buffer.hasRemaining() && capability.isConnectAttrs()) {
             connectAttributes = Maps.newHashMap();
             long attrsLength = MysqlProto.readVInt(buffer);
-            long initialPosition = buffer.position();
-            while (buffer.position() - initialPosition < attrsLength) {
+            int startPos = buffer.position();
+
+            // Loop until all attribute bytes are consumed
+            while (buffer.position() - startPos < attrsLength) {
                 String key = new String(MysqlProto.readLenEncodedString(buffer));
                 String value = new String(MysqlProto.readLenEncodedString(buffer));
                 connectAttributes.put(key, value);
             }
         }
 
-        // Commented for JDBC
-        // if (buffer.remaining() != 0) {
-        //     return false;
-        // }
         return true;
     }
 
     @Override
     public void writeTo(MysqlSerializer serializer) {
-
+        // Implementation for serializing the packet back to the client if needed
     }
 }
