@@ -1421,6 +1421,12 @@ under the License.
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
         </dependency>
+<dependency>
+    <groupId>com.oracle.database.jdbc</groupId>
+    <artifactId>ojdbc8</artifactId>
+    <version>23.26.0.0.0</version>
+    <scope>compile</scope>
+</dependency>
 
     </dependencies>
     <reporting>
