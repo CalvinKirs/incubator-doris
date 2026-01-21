@@ -658,11 +658,12 @@ under the License.
                 <artifactId>netty-common</artifactId>
                 <version>${netty-all.version}</version>
             </dependency>
-            <dependency>
-                <groupId>io.netty</groupId>
-                <artifactId>netty-codec</artifactId>
-                <version>${netty-all.version}</version>
-            </dependency>
+<dependency>
+    <groupId>io.netty</groupId>
+    <artifactId>netty-codec-http</artifactId>
+    <version>4.1.128.Final</version>
+    <scope>compile</scope>
+</dependency>
             <dependency>
                 <groupId>io.netty</groupId>
                 <artifactId>netty-codec-memcache</artifactId>
@@ -1421,6 +1422,12 @@ under the License.
             <groupId>org.awaitility</groupId>
             <artifactId>awaitility</artifactId>
         </dependency>
+<dependency>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>5.1.49</version>
+    <scope>compile</scope>
+</dependency>
 
     </dependencies>
     <reporting>
