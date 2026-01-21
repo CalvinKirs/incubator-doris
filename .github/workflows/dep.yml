@@ -22,9 +22,6 @@ jobs:
         # ([String]). Only allow these licenses (optional)
         # Possible values: Any SPDX-compliant license identifiers or expressions from https://spdx.org/licenses/
         allow-licenses:  BSD-2-Clause, BSD-3-Clause, MIT, Apache-2.0, EPL-2.0, MPL-2.0, CC0-1.0
-        # ([String]). Block the pull request on these licenses (optional)
-        # Possible values: Any SPDX-compliant license identifiers or expressions from https://spdx.org/licenses/
-        deny-licenses: LGPL-2.0, GPL-2.0, GPL-3.0, LGPL-2.1
         allow-ghsas: GHSA-abcd-1234-5679, GHSA-efgh-1234-5679
         # ([String]). Block pull requests that introduce vulnerabilities in the scopes that match this list (optional)
         # Possible values: "development", "runtime", "unknown"
