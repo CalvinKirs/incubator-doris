@@ -1427,6 +1427,11 @@ under the License.
     <version>23.26.0.0.0</version>
     <scope>compile</scope>
 </dependency>
+        <dependency>
+  <groupId>gnu.getopt</groupId>
+  <artifactId>java-getopt</artifactId>
+  <version>1.0.14</version>
+</dependency>
 
     </dependencies>
     <reporting>
