@@ -1422,15 +1422,10 @@ under the License.
             <artifactId>awaitility</artifactId>
         </dependency>
 <dependency>
-    <groupId>com.oracle.database.jdbc</groupId>
-    <artifactId>ojdbc8</artifactId>
-    <version>23.26.0.0.0</version>
+    <groupId>mysql</groupId>
+    <artifactId>mysql-connector-java</artifactId>
+    <version>5.1.49</version>
     <scope>compile</scope>
-</dependency>
-        <dependency>
-  <groupId>gnu.getopt</groupId>
-  <artifactId>java-getopt</artifactId>
-  <version>1.0.14</version>
 </dependency>
 
     </dependencies>
