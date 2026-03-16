@@ -21,6 +21,7 @@ package org.apache.doris.service.arrowflight.tokens;
 
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.CustomThreadFactory;
+import org.apache.doris.common.util.SensitiveDataMaskUtils;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.service.ExecuteEnv;
 import org.apache.doris.service.arrowflight.auth2.FlightAuthResult;
@@ -74,17 +75,21 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                         // TODO: broadcast this message to other FE
                         String token = notification.getKey();
                         FlightTokenDetails tokenDetails = notification.getValue();
+                        if (tokenDetails.getToken().equals("")) {
+                            return;
+                        }
                         ConnectContext context = ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
                                 .getContextWithFlightToken(token);
                         if (context != null) {
                             ExecuteEnv.getInstance().getScheduler().getFlightSqlConnectPoolMgr()
                                     .unregisterConnection(context);
-                            LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
-                                    + notification.getCause()
-                                    + ", and unregister flight connection context after evict bearer token");
+                            LOG.info("Evicted flight token from tokenCache for user: {}, reason: {}, "
+                                            + "and unregistered flight connection context",
+                                    tokenDetails.getUsername(), notification.getCause());
                         } else {
-                            LOG.info("evict bearer token: " + token + " from tokenCache, reason: "
-                                    + notification.getCause() + ", and flight connection context not exist");
+                            LOG.info("Evicted flight token from tokenCache for user: {}, reason: {}, "
+                                            + "and flight connection context not exist",
+                                    tokenDetails.getUsername(), notification.getCause());
                         }
                         usersTokenLRU.get(tokenDetails.getUsername()).invalidate(token);
                     }
@@ -128,8 +133,8 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                                 public void onRemoval(@NotNull RemovalNotification<String, Integer> notification) {
                                     // TODO: broadcast this message to other FE
                                     assert notification.getKey() != null;
-                                    LOG.info("evict bearer token: " + notification.getKey()
-                                            + " from usersTokenLRU, reason: " + notification.getCause());
+                                    LOG.info("Evicted flight token from usersTokenLRU for user: {}, reason: {}",
+                                            username, notification.getCause());
                                     tokenCache.invalidate(notification.getKey());
                                 }
                             }).build(new CacheLoader<String, Integer>() {
@@ -141,7 +146,7 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
                             }));
         }
         usersTokenLRU.get(username).put(token, 1);
-        LOG.info("Created flight token for user: {}, token: {}", username, token);
+        LOG.info("Created flight token for user: {}", username);
         return flightTokenDetails;
     }
 
@@ -149,25 +154,23 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
     public FlightTokenDetails validateToken(final String token) throws IllegalArgumentException {
         final FlightTokenDetails value = getTokenDetails(token);
         if (value.getToken().equals("")) {
-            throw new IllegalArgumentException("invalid bearer token: " + token
-                    + ", try reconnect, bearer token may not be created, or may have been evict, search for this "
-                    + "token in fe.log to see the evict reason. currently in fe.conf, `arrow_flight_max_connections`="
+            throw new IllegalArgumentException("invalid bearer token, try reconnect. bearer token may not be "
+                    + "created, or may have been evicted. currently in fe.conf, `arrow_flight_max_connections`="
                     + this.cacheSize + ", `arrow_flight_token_alive_time_second`=" + this.cacheExpiration);
         }
         if (System.currentTimeMillis() >= value.getExpiresAt()) {
             tokenCache.invalidate(token);
-            throw new IllegalArgumentException("bearer token expired: " + token + ", try reconnect, "
+            throw new IllegalArgumentException("bearer token expired, try reconnect, "
                     + "currently in fe.conf, `arrow_flight_token_alive_time_second`=" + this.cacheExpiration);
         }
         if (usersTokenLRU.containsKey(value.getUsername())) {
             try {
                 usersTokenLRU.get(value.getUsername()).get(token);
             } catch (ExecutionException ignored) {
-                throw new IllegalArgumentException("usersTokenLRU not exist bearer token: " + token);
+                throw new IllegalArgumentException("usersTokenLRU does not contain the bearer token");
             }
         } else {
-            throw new IllegalArgumentException(
-                    "bearer token not created: " + token + ", username:  " + value.getUsername());
+            throw new IllegalArgumentException("bearer token not created for user: " + value.getUsername());
         }
         LOG.info("Validated bearer token for user: {}", value.getUsername());
         return value;
@@ -175,20 +178,14 @@ public class FlightTokenManagerImpl implements FlightTokenManager {
 
     @Override
     public void invalidateToken(final String token) {
-        LOG.info("Invalidate bearer token, {}", token);
+        LOG.info("Invalidate bearer token, token={}", SensitiveDataMaskUtils.maskToken(token));
         tokenCache.invalidate(token);
     }
 
     private FlightTokenDetails getTokenDetails(final String token) {
         Preconditions.checkNotNull(token, "invalid token");
-        final FlightTokenDetails value;
-        try {
-            value = tokenCache.getUnchecked(token);
-        } catch (CacheLoader.InvalidCacheLoadException ignored) {
-            throw new IllegalArgumentException("InvalidCacheLoadException, invalid bearer token: " + token);
-        }
-
-        return value;
+        FlightTokenDetails value = tokenCache.getIfPresent(token);
+        return value == null ? new FlightTokenDetails() : value;
     }
 
     @Override

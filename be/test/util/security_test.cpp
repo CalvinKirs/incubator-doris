@@ -15,30 +15,28 @@
 // specific language governing permissions and limitations
 // under the License.
 
-#pragma once
+#include <gtest/gtest.h>
 
-#include <regex>
 #include <string>
+
+#include "util/security.h"
 
 namespace doris {
 
-inline std::string mask_token(const std::string& str) {
-    static const std::regex key_value_pattern(
-            "((?:^|[?&;,\\s])(?:token|ak|sk|session_token)=)([^&\\s,;]+)", std::regex::icase);
-    std::string masked = std::regex_replace(str, key_value_pattern, "$1******");
-    if (masked != str) {
-        return masked;
-    }
+TEST(SecurityTest, MaskTokenMasksCredentialPairs) {
+    std::string result = mask_token(
+            "http://127.0.0.1/api/get_small_file?file_id=1&token=test-token&ak=test-ak&sk=test-sk"
+            "&session_token=test-session");
 
-    static const std::regex bare_secret_pattern("^[A-Za-z0-9._-]+$");
-    if (!str.empty() && std::regex_match(str, bare_secret_pattern)) {
-        return "******";
-    }
-    return str;
-}
-
-inline std::string mask_token(const char* str) {
-    return mask_token(std::string(str));
+    ASSERT_EQ(result.find("test-token"), std::string::npos);
+    ASSERT_EQ(result.find("test-ak"), std::string::npos);
+    ASSERT_EQ(result.find("test-sk"), std::string::npos);
+    ASSERT_EQ(result.find("test-session"), std::string::npos);
+    ASSERT_NE(result.find("token=******"), std::string::npos);
+    ASSERT_NE(result.find("ak=******"), std::string::npos);
+    ASSERT_NE(result.find("sk=******"), std::string::npos);
+    ASSERT_NE(result.find("session_token=******"), std::string::npos);
+    ASSERT_EQ(mask_token("raw-bearer-token"), "******");
 }
 
 } // namespace doris

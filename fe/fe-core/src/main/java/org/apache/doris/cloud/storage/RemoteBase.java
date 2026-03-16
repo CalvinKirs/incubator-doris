@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.DdlException;
 import org.apache.doris.common.Pair;
+import org.apache.doris.common.util.SensitiveDataMaskUtils;
 
 import lombok.Getter;
 import org.apache.commons.lang3.tuple.Triple;
@@ -103,16 +104,16 @@ public abstract class RemoteBase {
         public String toString() {
             return "Obj{"
                 + "provider=" + provider
-                + ", ak='" + ak + '\''
-                + ", sk='******" + '\''
+                + ", ak='" + SensitiveDataMaskUtils.maskSecret(ak) + '\''
+                + ", sk='" + SensitiveDataMaskUtils.maskSecret(sk) + '\''
                 + ", bucket='" + bucket + '\''
                 + ", endpoint='" + endpoint + '\''
                 + ", region='" + region + '\''
                 + ", prefix='" + prefix + '\''
                 + ", roleName='" + roleName + '\''
                 + ", arn='" + arn + '\''
-                + ", externalId='" + externalId + '\''
-                + ", token='" + token + '\''
+                + ", externalId='" + SensitiveDataMaskUtils.maskSecret(externalId) + '\''
+                + ", token='" + SensitiveDataMaskUtils.maskToken(token) + '\''
                 + '}';
         }
     }
@@ -226,7 +227,9 @@ public abstract class RemoteBase {
         try {
             ObjectStoreInfoPB infoPB = stagePB.getObjInfo();
             String encodedExternalId = encodeExternalId(stagePB.getExternalId());
-            LOG.info("Before parse object storage info={}, encodedExternalId={}", stagePB, encodedExternalId);
+            LOG.info("Before parse object storage info={}",
+                    formatStageObjectStoreInfoForLog(stagePB,
+                            SensitiveDataMaskUtils.maskSecret(encodedExternalId)));
             remote = RemoteBase.newInstance(new ObjectInfo(infoPB, stagePB.getRoleName(), stagePB.getArn(),
                     encodedExternalId, null));
             Triple<String, String, String> stsToken = remote.getStsToken();
@@ -236,13 +239,25 @@ public abstract class RemoteBase {
             LOG.info("Parse object storage info, before={}, after={}", new ObjectInfo(infoPB), objInfo);
             return objInfo;
         } catch (Throwable e) {
-            LOG.warn("Failed analyze stagePB={}", stagePB, e);
+            LOG.warn("Failed analyze stage object storage info={}",
+                    formatStageObjectStoreInfoForLog(stagePB,
+                            SensitiveDataMaskUtils.maskSecret(stagePB.getExternalId())), e);
             throw new AnalysisException("Failed analyze object info of stagePB, " + e.getMessage());
         } finally {
             if (remote != null) {
                 remote.close();
             }
         }
+    }
+
+    private static String formatStageObjectStoreInfoForLog(StagePB stagePB, String maskedExternalId) {
+        return "StagePB{"
+                + "accessType=" + stagePB.getAccessType()
+                + ", roleName='" + stagePB.getRoleName() + '\''
+                + ", arn='" + stagePB.getArn() + '\''
+                + ", externalId='" + maskedExternalId + '\''
+                + ", objInfo=" + SensitiveDataMaskUtils.sanitizeObjectStoreInfoPB(stagePB.getObjInfo())
+                + '}';
     }
 
     private static String encodeExternalId(String externalId) throws UnsupportedEncodingException {

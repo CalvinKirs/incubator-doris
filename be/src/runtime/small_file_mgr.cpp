@@ -40,6 +40,7 @@
 #include "runtime/exec_env.h"
 #include "service/http/http_client.h"
 #include "util/md5.h"
+#include "util/security.h"
 #include "util/string_util.h"
 
 namespace doris {
@@ -176,7 +177,7 @@ Status SmallFileMgr::_download_file(int64_t file_id, const std::string& md5,
 
     std::string url = url_ss.str();
 
-    LOG(INFO) << "download file from: " << url;
+    LOG(INFO) << "download file from: " << mask_token(url);
 
     RETURN_IF_ERROR(client.init(url));
     Status status;

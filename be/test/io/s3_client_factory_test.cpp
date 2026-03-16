@@ -346,4 +346,22 @@ TEST_F(S3ClientFactoryTest, AwsCredentialsProviderV1RoleArnDefaultFallback) {
     config::aws_credentials_provider_version = "v2";
 }
 
+TEST_F(S3ClientFactoryTest, S3ClientConfToStringMasksSensitiveCredentials) {
+    S3ClientConf conf;
+    conf.ak = "visible_ak";
+    conf.sk = "visible_sk";
+    conf.token = "visible_session_token";
+    conf.endpoint = "s3.us-west-2.amazonaws.com";
+    conf.region = "us-west-2";
+    conf.bucket = "test-bucket";
+
+    std::string result = conf.to_string();
+
+    ASSERT_EQ(result.find("visible_ak"), std::string::npos);
+    ASSERT_EQ(result.find("visible_sk"), std::string::npos);
+    ASSERT_EQ(result.find("visible_session_token"), std::string::npos);
+    ASSERT_NE(result.find("ak=******"), std::string::npos);
+    ASSERT_NE(result.find("token=******"), std::string::npos);
+}
+
 } // namespace doris

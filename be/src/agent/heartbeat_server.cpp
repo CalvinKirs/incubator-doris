@@ -41,6 +41,7 @@
 #include "util/debug_util.h"
 #include "util/mem_info.h"
 #include "util/network_util.h"
+#include "util/security.h"
 #include "util/thrift_server.h"
 #include "util/time.h"
 
@@ -217,10 +218,11 @@ Status HeartbeatServer::_heartbeat(const TMasterInfo& master_info) {
     if (master_info.__isset.token) {
         if (_cluster_info->token == "") {
             _cluster_info->token = master_info.token;
-            LOG(INFO) << "get token. token: " << _cluster_info->token;
+            LOG(INFO) << "get token. token: " << mask_token(_cluster_info->token);
         } else if (_cluster_info->token != master_info.token) {
             return Status::InternalError("invalid token. local: {}, master: {}",
-                                         _cluster_info->token, master_info.token);
+                                         mask_token(_cluster_info->token),
+                                         mask_token(master_info.token));
         }
     }
 

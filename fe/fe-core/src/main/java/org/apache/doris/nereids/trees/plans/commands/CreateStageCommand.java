@@ -38,6 +38,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.common.InternalErrorCode;
 import org.apache.doris.common.UserException;
+import org.apache.doris.common.util.SensitiveDataMaskUtils;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.commands.info.StageProperties;
@@ -99,9 +100,10 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
 
     private void checkObjectStorageInfo() throws UserException {
         RemoteBase remote = null;
+        StagePB stagePB = null;
         try {
             tryConnect(stageProperties.getEndpoint());
-            StagePB stagePB = toStageProto();
+            stagePB = toStageProto();
             if (stagePB.getAccessType() == StageAccessType.IAM
                     || stagePB.getAccessType() == StageAccessType.BUCKET_ACL) {
                 GetIamResponse iamUsers = ((CloudInternalCatalog) Env.getCurrentInternalCatalog()).getIam();
@@ -126,8 +128,10 @@ public class CreateStageCommand extends Command implements ForwardWithSync, Need
             remote.headObject("1");
             remote.listObjects(null);
         } catch (Exception e) {
-            LOG.warn("Failed to access object storage, proto={}, err={}",
-                    stageProperties.getObjectStoreInfoPB(), e.toString());
+            ObjectStoreInfoPB objectStoreInfoPB =
+                    stagePB == null ? stageProperties.getObjectStoreInfoPB() : stagePB.getObjInfo();
+            LOG.warn("Failed to access object storage, objectStoreInfo={}, err={}",
+                    SensitiveDataMaskUtils.sanitizeObjectStoreInfoPB(objectStoreInfoPB), e.toString());
             String msg;
             if (e instanceof UserException) {
                 msg = ((UserException) e).getDetailMessage();

@@ -37,6 +37,7 @@
 #include "cpp/aws_common.h"
 #include "cpp/s3_rate_limiter.h"
 #include "io/fs/obj_storage_client.h"
+#include "util/security.h"
 
 namespace Aws::S3 {
 class S3Client;
@@ -111,7 +112,7 @@ struct S3ClientConf {
                 "(ak={}, token={}, endpoint={}, region={}, bucket={}, max_connections={}, "
                 "request_timeout_ms={}, connect_timeout_ms={}, use_virtual_addressing={}, "
                 "cred_provider_type={},role_arn={}, external_id={}",
-                hide_access_key(ak), token, endpoint, region, bucket, max_connections,
+                mask_token(ak), mask_token(token), endpoint, region, bucket, max_connections,
                 request_timeout_ms, connect_timeout_ms, use_virtual_addressing, cred_provider_type,
                 role_arn, external_id);
     }
