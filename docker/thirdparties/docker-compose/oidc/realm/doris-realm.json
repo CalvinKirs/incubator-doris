@@ -1,0 +1,553 @@
+{
+  "realm": "doris",
+  "enabled": true,
+  "displayName": "Doris Local OIDC",
+  "sslRequired": "none",
+  "registrationAllowed": false,
+  "loginWithEmailAllowed": true,
+  "duplicateEmailsAllowed": false,
+  "resetPasswordAllowed": false,
+  "rememberMe": false,
+  "accessTokenLifespan": 10800,
+  "ssoSessionIdleTimeout": 10800,
+  "ssoSessionMaxLifespan": 10800,
+  "groups": [
+    {
+      "name": "doris_analyst"
+    },
+    {
+      "name": "doris_dashboard_readonly"
+    }
+  ],
+  "clientScopes": [
+    {
+      "name": "doris.query",
+      "description": "Doris query scope used by access-token regression tests",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "doris.profile",
+      "description": "Optional Doris profile scope used by access-token regression tests",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      }
+    },
+    {
+      "name": "doris-groups-array",
+      "description": "Emit doris_groups as a string array",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "doris-groups-array",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-group-membership-mapper",
+          "consentRequired": false,
+          "config": {
+            "full.path": "false",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false",
+            "claim.name": "doris_groups"
+          }
+        }
+      ]
+    },
+    {
+      "name": "doris-groups-csv",
+      "description": "Emit doris_groups as a comma-separated string for boundary testing",
+      "protocol": "openid-connect",
+      "attributes": {
+        "include.in.token.scope": "true",
+        "display.on.consent.screen": "false"
+      },
+      "protocolMappers": [
+        {
+          "name": "doris-groups-csv",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "doris_groups_csv",
+            "claim.name": "doris_groups",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "clients": [
+    {
+      "clientId": "doris",
+      "name": "Doris Resource Audience",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "doris-resource-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ]
+    },
+    {
+      "clientId": "grafana-doris-plugin",
+      "name": "Grafana Doris Plugin",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "grafana-doris-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ],
+      "defaultClientScopes": [
+        "doris-groups-array"
+      ],
+      "optionalClientScopes": [
+        "doris.query",
+        "doris.profile"
+      ],
+      "protocolMappers": [
+        {
+          "name": "doris-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "included.client.audience": "doris"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "department",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "department",
+            "claim.name": "department",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "preferred_username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "id",
+            "claim.name": "sub",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "legacy-grafana-plugin",
+      "name": "Legacy Grafana Doris Plugin",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "legacy-grafana-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ],
+      "defaultClientScopes": [
+        "doris-groups-csv"
+      ],
+      "optionalClientScopes": [
+        "doris.query",
+        "doris.profile"
+      ],
+      "protocolMappers": [
+        {
+          "name": "doris-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "included.client.audience": "doris"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "department",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "department",
+            "claim.name": "department",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "preferred_username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "id",
+            "claim.name": "sub",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    },
+    {
+      "clientId": "agent-gateway",
+      "name": "Agent Gateway",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "secret": "agent-gateway-secret",
+      "standardFlowEnabled": false,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": true,
+      "serviceAccountsEnabled": false,
+      "fullScopeAllowed": false,
+      "redirectUris": [
+        "*"
+      ],
+      "webOrigins": [
+        "*"
+      ],
+      "defaultClientScopes": [
+        "doris-groups-array"
+      ],
+      "optionalClientScopes": [
+        "doris.query",
+        "doris.profile"
+      ],
+      "protocolMappers": [
+        {
+          "name": "doris-audience",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-audience-mapper",
+          "consentRequired": false,
+          "config": {
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "included.client.audience": "doris"
+          }
+        },
+        {
+          "name": "tenant",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "tenant",
+            "claim.name": "tenant",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "department",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-attribute-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "department",
+            "claim.name": "department",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "preferred_username",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "username",
+            "claim.name": "preferred_username",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        },
+        {
+          "name": "subject",
+          "protocol": "openid-connect",
+          "protocolMapper": "oidc-usermodel-property-mapper",
+          "consentRequired": false,
+          "config": {
+            "user.attribute": "id",
+            "claim.name": "sub",
+            "jsonType.label": "String",
+            "id.token.claim": "false",
+            "access.token.claim": "true",
+            "userinfo.token.claim": "false"
+          }
+        }
+      ]
+    }
+  ],
+  "users": [
+    {
+      "username": "oidc_alice",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "OIDC",
+      "lastName": "Alice",
+      "email": "oidc_alice@example.com",
+      "attributes": {
+        "tenant": [
+          "acme"
+        ],
+        "department": [
+          "finance"
+        ]
+      },
+      "groups": [
+        "/doris_analyst",
+        "/doris_dashboard_readonly"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "alice123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "oidc_bob",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "OIDC",
+      "lastName": "Bob",
+      "email": "oidc_bob@example.com",
+      "attributes": {
+        "tenant": [
+          "acme"
+        ],
+        "department": [
+          "finance"
+        ]
+      },
+      "groups": [
+        "/doris_analyst"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "bob123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "oidc_carol",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "OIDC",
+      "lastName": "Carol",
+      "email": "oidc_carol@example.com",
+      "attributes": {
+        "tenant": [
+          "acme"
+        ],
+        "department": [
+          "dashboard"
+        ]
+      },
+      "groups": [
+        "/doris_dashboard_readonly"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "carol123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "oidc_dave",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "OIDC",
+      "lastName": "Dave",
+      "email": "oidc_dave@example.com",
+      "attributes": {
+        "tenant": [
+          "acme"
+        ],
+        "department": [
+          "support"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "dave123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "oidc_erin",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "OIDC",
+      "lastName": "Erin",
+      "email": "oidc_erin@example.com",
+      "attributes": {
+        "tenant": [
+          "globex"
+        ],
+        "department": [
+          "operations"
+        ]
+      },
+      "groups": [
+        "/doris_analyst"
+      ],
+      "credentials": [
+        {
+          "type": "password",
+          "value": "erin123",
+          "temporary": false
+        }
+      ]
+    },
+    {
+      "username": "oidc_frank",
+      "enabled": true,
+      "emailVerified": true,
+      "firstName": "OIDC",
+      "lastName": "Frank",
+      "email": "oidc_frank@example.com",
+      "attributes": {
+        "tenant": [
+          "acme"
+        ],
+        "department": [
+          "finance"
+        ],
+        "doris_groups_csv": [
+          "doris_analyst,doris_dashboard_readonly"
+        ]
+      },
+      "credentials": [
+        {
+          "type": "password",
+          "value": "frank123",
+          "temporary": false
+        }
+      ]
+    }
+  ]
+}

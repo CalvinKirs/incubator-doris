@@ -43,12 +43,12 @@ Usage: $0 <options>
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
 
   All valid components:
-    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
+    mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris,oidc
   "
     exit 1
 }
 DEFAULT_COMPONENTS="mysql,es,hive2,hive3,pg,oracle,sqlserver,clickhouse,mariadb,iceberg,hudi,db2,oceanbase,kerberos,minio"
-ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
+ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris,oidc"
 COMPONENTS=$2
 HELP=0
 STOP=0
@@ -170,6 +170,7 @@ RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
+RUN_OIDC=0
 
 RESERVED_PORTS="65535"
 
@@ -216,6 +217,8 @@ for element in "${COMPONENTS_ARR[@]}"; do
         RUN_RANGER=1
     elif [[ "${element}"x == "polaris"x ]]; then
         RUN_POLARIS=1
+    elif [[ "${element}"x == "oidc"x ]]; then
+        RUN_OIDC=1
     else
         echo "Invalid component: ${element}"
         usage
@@ -771,6 +774,23 @@ start_iceberg_rest() {
     fi
 }
 
+start_oidc() {
+    echo "RUN_OIDC"
+    local OIDC_DIR="${ROOT}/docker-compose/oidc"
+    export CONTAINER_UID=${CONTAINER_UID}
+    . "${OIDC_DIR}/oidc.env"
+    if command -v envsubst >/dev/null 2>&1; then
+        envsubst <"${OIDC_DIR}/docker-compose.yaml.tpl" >"${OIDC_DIR}/docker-compose.yaml"
+    else
+        cp "${OIDC_DIR}/docker-compose.yaml.tpl" "${OIDC_DIR}/docker-compose.yaml"
+    fi
+    sudo docker compose -p "${CONTAINER_UID}oidc" -f "${OIDC_DIR}/docker-compose.yaml" down
+    if [[ "${STOP}" -ne 1 ]]; then
+        sudo docker compose -p "${CONTAINER_UID}oidc" -f "${OIDC_DIR}/docker-compose.yaml" up -d --wait --remove-orphans
+        bash "${OIDC_DIR}/generate-tokens.sh"
+    fi
+}
+
 echo "starting dockers in parallel"
 
 reserve_ports
@@ -893,6 +913,11 @@ fi
 if [[ "${RUN_POLARIS}" -eq 1 ]]; then
     start_polaris > start_polaris.log 2>&1 &
     pids["polaris"]=$!
+fi
+
+if [[ "${RUN_OIDC}" -eq 1 ]]; then
+    start_oidc > start_oidc.log 2>&1 &
+    pids["oidc"]=$!
 fi
 
 if [[ "${RUN_KERBEROS}" -eq 1 ]]; then
