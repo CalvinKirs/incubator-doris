@@ -49,6 +49,8 @@ import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.lang.reflect.Field;
+import java.net.URL;
+import java.net.URLClassLoader;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -104,6 +106,20 @@ class AuthenticatorManagerTest {
 
         Authenticator authenticator = manager.chooseAuthenticator(USER_NAME, REMOTE_IP);
         Assertions.assertTrue(authenticator instanceof AuthenticationPluginAuthenticator);
+    }
+
+    @Test
+    void testChooseAuthenticatorUsesPluginFactoryWhenThreadContextClassLoaderCannotSeeProvider() {
+        ClassLoader originalClassLoader = Thread.currentThread().getContextClassLoader();
+        Thread.currentThread().setContextClassLoader(new URLClassLoader(new URL[0], null));
+        try {
+            AuthenticatorManager manager = new AuthenticatorManager("test_plugin");
+
+            Authenticator authenticator = manager.chooseAuthenticator(USER_NAME, REMOTE_IP);
+            Assertions.assertTrue(authenticator instanceof AuthenticationPluginAuthenticator);
+        } finally {
+            Thread.currentThread().setContextClassLoader(originalClassLoader);
+        }
     }
 
     @Test
