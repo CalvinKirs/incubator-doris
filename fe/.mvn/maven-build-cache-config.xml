@@ -57,6 +57,21 @@ under the License.
                         <execId>validate</execId>
                     </execIds>
                 </execution>
+                <!-- Cache compiled classes, but always execute tests so local
+                     developers still get fresh test results on repeated runs. -->
+                <execution artifactId="maven-surefire-plugin">
+                    <execIds>
+                        <execId>default-test</execId>
+                    </execIds>
+                </execution>
+                <!-- Coverage runs invoke jacoco both from the lifecycle
+                     (prepare-agent) and directly from the CLI (report). -->
+                <execution artifactId="jacoco-maven-plugin">
+                    <execIds>
+                        <execId>default-prepare-agent</execId>
+                        <execId>default-cli</execId>
+                    </execIds>
+                </execution>
                 <!-- dependency:copy-dependencies writes JARs to target/lib/ which the build
                      scripts later copy into the output directory. The cache extension only
                      restores the primary JAR artifact on a hit, not the target/lib/ tree.

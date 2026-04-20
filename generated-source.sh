@@ -31,12 +31,27 @@ export DORIS_HOME="${ROOT}"
 echo "Build generated code"
 cd "${DORIS_HOME}/gensrc"
 
-# if calling from build.sh, no need to clean build/ dir.
-# it will be removed by using `build.sh --clean`.
-# when run this script along, it will always remove the build/ dir.
-if [[ "$#" == 0 ]]; then
+# Any argument keeps the existing incremental behavior used by build.sh.
+# Support explicit flags to make the intent clearer for local development tools.
+incremental_mode=0
+if [[ "$#" != 0 ]]; then
+    incremental_mode=1
+fi
+if [[ "${1-}" == "--incremental" ]]; then
+    incremental_mode=1
+fi
+if [[ "${1-}" == "--clean" ]]; then
+    incremental_mode=0
+fi
+
+# If calling from build.sh or local dev scripts in incremental mode, do not
+# remove gensrc/build so make can reuse existing outputs. A clean build still
+# removes the directory first.
+if [[ "${incremental_mode}" -eq 0 ]]; then
     echo "rm -rf ${DORIS_HOME}/gensrc/build"
     rm -rf "${DORIS_HOME}/gensrc/build"
+else
+    echo "Reuse existing generated sources in ${DORIS_HOME}/gensrc/build"
 fi
 
 # DO NOT using parallel make(-j) for gensrc

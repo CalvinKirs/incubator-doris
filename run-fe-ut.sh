@@ -96,7 +96,12 @@ echo "******************************"
 #cp build/help-resource.zip "${DORIS_HOME}"/fe/fe-core/src/test/resources/real-help-resource.zip
 #cd "${DORIS_HOME}"
 
-"${DORIS_HOME}"/generated-source.sh
+generated_source_args=(noclean)
+if [[ "${FE_UT_FORCE_CLEAN_GENSRC:-0}" == 1 ]]; then
+    generated_source_args=()
+fi
+echo "Generated source args: ${generated_source_args[*]:-(clean)}"
+"${DORIS_HOME}"/generated-source.sh "${generated_source_args[@]}"
 
 cd "${DORIS_HOME}/fe"
 mkdir -p build/compile
@@ -107,6 +112,14 @@ if [[ -z "${FE_UT_PARALLEL}" ]]; then
 fi
 echo "Unit test parallel is: ${FE_UT_PARALLEL}"
 
+mvn_cache_opts=()
+if [[ "${FE_UT_DISABLE_BUILD_CACHE:-0}" == 1 ]]; then
+    mvn_cache_opts+=("-Dmaven.build.cache.enabled=false")
+    echo "FE unit test Maven build cache: disabled"
+else
+    echo "FE unit test Maven build cache: enabled"
+fi
+
 if [[ "${RUN}" -eq 1 ]]; then
     echo "Run the specified class: $1"
     # eg:
@@ -114,15 +127,15 @@ if [[ "${RUN}" -eq 1 ]]; then
     # sh run-fe-ut.sh --run org.apache.doris.utframe.DemoTest#testCreateDbAndTable+test2
 
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dtest="$1"
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false "${mvn_cache_opts[@]}" -Dtest="$1"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false -Dtest="$1"
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false "${mvn_cache_opts[@]}" -Dtest="$1"
     fi
 else
     echo "Run Frontend UT"
     if [[ "${COVERAGE}" -eq 1 ]]; then
-        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true
+        "${MVN_CMD}" test jacoco:report -DfailIfNoTests=false -Dmaven.test.failure.ignore=true "${mvn_cache_opts[@]}"
     else
-        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false -Dmaven.build.cache.enabled=false
+        "${MVN_CMD}" test -Dcheckstyle.skip=true -DfailIfNoTests=false "${mvn_cache_opts[@]}"
     fi
 fi
