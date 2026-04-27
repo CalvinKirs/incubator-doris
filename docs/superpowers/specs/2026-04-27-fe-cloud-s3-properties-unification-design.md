@@ -1,18 +1,21 @@
-# FE Cloud S3 Properties Unification 设计方案
+# Cloud 与内核 S3 Properties Unification 设计方案
 
 日期：2026-04-27  
 状态：方案草案  
-范围：本期端到端覆盖普通 `S3Resource`、Cloud `S3StorageVault` / `StorageVaultMgr`、`ObjectStoreInfoPB`、Cloud MetaService / Recycler、BE `ObjectStoreInfoPB` 读取路径
+范围：本期端到端覆盖内核普通 `S3Resource`、Cloud `S3StorageVault` / `StorageVaultMgr`、`ObjectStoreInfoPB`、Cloud MetaService / Recycler、BE `ObjectStoreInfoPB` 读取路径
 
 ## 1. 背景
 
-FE 当前存在多套 S3-compatible object storage 参数处理方式：
+Cloud 和内核当前在 S3-compatible object storage 的用户配置行为上没有完全统一，主要体现在参数入口、alias、默认值、校验规则、认证方式和最终访问能力上：
 
-1. 普通 FE 存储路径逐步收敛到 `S3Properties`，支持 `s3.*`、`AWS_*`、role、provider chain、session token 等参数入口。
+1. 内核普通 S3 路径逐步收敛到 `S3Properties`，支持 `s3.*`、`AWS_*`、role、provider chain、session token 等参数入口。
 2. 普通 `CREATE RESOURCE type=s3` 由 `S3Resource` 承载，服务 storage policy、冷热分层、S3 TVF resource 复用等非 Cloud-only 场景。
 3. Cloud storage vault 入口复用了 `S3Resource` 的属性处理，但最终通过 `StorageVaultMgr` 构造 `ObjectStoreInfoPB`。这条链路仍有不少代码逐个 key 取值。
+4. Cloud MetaService、Recycler 和 BE 从 PB / thrift / map 读取 S3 配置时也存在字段能力不一致，例如 session token、provider chain、role 相关字段没有完全对齐。
 
-这导致同一类参数在不同入口的行为不一致：某些入口支持 alias，某些入口不支持；某些入口会处理 role，某些入口只处理 AK/SK；Cloud storage vault 的真实能力也容易和 `S3Properties` 的普通 FE 能力混在一起。
+这导致同一类参数在不同入口的用户体验不一致：某些入口支持 alias，某些入口不支持；某些入口会处理 role，某些入口只处理 AK/SK；Cloud 和内核对 session token、provider chain、path style 等能力的表现也不同。
+
+本期目标不是继续补局部兼容逻辑，而是把 S3 用户配置行为的唯一维护点收敛到 `S3Properties`：参数解析、alias 归一、默认值、校验、认证方式互斥、脱敏 key、以及生成 `ObjectStoreInfoPB` / `TS3StorageParam` / backend properties 的转换逻辑都从 `S3Properties` 出发。Cloud 和内核在用户可见行为上应完全统一，差异只能是下游 wire 格式或组件部署能力，并且这些差异应通过补齐后端能力解决。
 
 ## 1.1 `CREATE RESOURCE` 当前使用面
 
@@ -22,7 +25,7 @@ FE 当前存在多套 S3-compatible object storage 参数处理方式：
 2. S3 TVF resource 复用。`S3(...)` TVF 可以通过 `"resource" = "<resource_name>"` 复用 `S3Resource` 中的连接和凭据参数。
 3. Cloud storage vault 内部复用。用户入口是 `CREATE STORAGE VAULT`，但 `S3StorageVault` 复用了 `S3Resource` 的部分属性处理逻辑，最终再生成 Cloud `ObjectStoreInfoPB`。
 
-因此实现时必须把 `RESOURCE` 和 `STORAGE_VAULT` 分成两个 use case。普通 `RESOURCE` 不能因为 Cloud vault 能力较窄而被错误收紧。
+因此实现时不再拆 `RESOURCE` 和 `STORAGE_VAULT` 两套 S3 行为。普通 `CREATE RESOURCE type=s3` 和 Cloud `CREATE STORAGE VAULT type=s3` 应共享同一套 `S3Properties` 解析、归一、校验和凭据语义；差异只体现在输出目标不同，例如 `TS3StorageParam` 或 `ObjectStoreInfoPB`。
 
 ## 1.2 `S3Resource` 到实际访问的参数消费链路
 
@@ -30,19 +33,19 @@ FE 当前存在多套 S3-compatible object storage 参数处理方式：
 
 1. S3 TVF resource 复用路径：`ExternalFileTableValuedFunction.parseCommonProperties()` 先读取 `resource.getCopiedProperties()`，再用 TVF 显式参数覆盖 resource 参数；随后 `S3TableValuedFunction` 调用 `StorageProperties.createPrimary()`，S3 场景会实例化 `S3Properties` 并生成 backend connect properties。因此这条链路的最终访问参数会走 `S3Properties`。
 2. Storage policy / 冷热分层路径：FE 不直接访问对象存储，而是在 `PushStoragePolicyTask` 中把 `S3Resource.getCopiedProperties()` 交给 `S3Properties.getS3TStorageParam()`，生成 `TS3StorageParam` 下发给 BE，真正访问发生在 BE。因此这条链路的 FE 参数转换会走 `S3Properties`，但访问执行不在 FE。
-3. Cloud storage vault 路径：`S3StorageVault` 复用 `S3Resource` 保存属性，`StorageVaultMgr` 通过 `S3Properties.getObjStoreInfoPB()` 生成 `ObjectStoreInfoPB`。这条链路目前已复用部分 `S3Properties` static helper，但仍需要按 `STORAGE_VAULT` use case 补齐能力校验、版本门禁和后端读取。
-4. `S3Resource` 自身 create/alter/ping 仍是 `Map<String, String>` + `S3Properties` static helper + 手工补齐 endpoint/region 的模式。第一阶段统一的重点不是否认下游已经复用 `S3Properties`，而是把入口解析、alias 合并、凭据模型、use case 校验都收敛到同一个 `S3Properties` 实例 API。
+3. Cloud storage vault 路径：`S3StorageVault` 复用 `S3Resource` 保存属性，`StorageVaultMgr` 通过 `S3Properties.getObjStoreInfoPB()` 生成 `ObjectStoreInfoPB`。这条链路目前已复用部分 `S3Properties` static helper，但仍需要补齐统一校验、版本门禁和后端读取。
+4. `S3Resource` 自身 create/alter/ping 仍是 `Map<String, String>` + `S3Properties` static helper + 手工补齐 endpoint/region 的模式。第一阶段统一的重点不是否认下游已经复用 `S3Properties`，而是把入口解析、alias 合并、凭据模型、互斥清理都收敛到同一个 `S3Properties` 实例 API。
 
 ## 2. 目标
 
-第一阶段目标是把 FE Cloud 参数入口收敛到 `S3Properties`，并在同一期补齐 Cloud storage vault 真实访问链路：
+第一阶段目标是把 Cloud 和内核的 S3 参数入口、认证方式和访问能力统一收敛到 `S3Properties`，并在同一期补齐 Cloud storage vault 真实访问链路：
 
-1. 普通 `S3Resource` 与 Cloud `StorageVault` 用户输入统一先归一到 canonical `s3.*`。
-2. AK/SK、role ARN、external ID、provider、`use_path_style` 等凭据和连接参数统一由 `S3Properties` 解析和校验。
-3. `ObjectStoreInfoPB`、`TS3StorageParam`、backend properties 都从 `S3Properties` 实例生成。
+1. 内核普通 `S3Resource` 与 Cloud `StorageVault` 用户输入统一先归一到 canonical `s3.*`。
+2. AK/SK、AK/SK/session token、role ARN、external ID、provider chain、`use_path_style` 等凭据和连接参数统一由 `S3Properties` 解析、校验和互斥清理。
+3. `ObjectStoreInfoPB`、`TS3StorageParam`、backend properties 都从 `S3Properties` 实例生成，调用方不再逐个 key 自行拼装 S3 参数。
 4. Cloud storage vault 在本期对齐可持久化的 `S3Properties` 能力，包括 AK/SK + session token、role ARN + external ID、以及可通过枚举稳定表达的 credentials provider type。
-5. 扩展 `ObjectStoreInfoPB`、Cloud MetaService 加密/脱敏、Cloud Recycler 和 BE `ObjectStoreInfoPB` 读取逻辑，避免 FE 接受参数但后端静默丢弃。
-6. 保持普通 `CREATE RESOURCE type=s3` 的非 Cloud 行为，尤其是 storage policy、S3 TVF resource 复用和 `TS3StorageParam` token 支持。
+5. 扩展 `ObjectStoreInfoPB`、Cloud MetaService 加密/脱敏、Cloud Recycler 和 BE `ObjectStoreInfoPB` 读取逻辑，避免入口接受参数但后端静默丢弃。
+6. 保持普通 `CREATE RESOURCE type=s3` 的业务使用面，同时确保它和 Cloud storage vault 共享同一套 `S3Properties` 用户行为。
 
 ## 3. 非目标
 
@@ -55,27 +58,22 @@ FE 当前存在多套 S3-compatible object storage 参数处理方式：
 
 ## 4. 核心设计
 
-在 `S3Properties` 中新增用例化入口：
+统一入口直接使用 `S3Properties.of(...)`：
 
 ```java
-S3Properties s3 = S3Properties.forUseCase(properties, S3PropertyUseCase.STORAGE_VAULT);
-s3.validateFor(S3PropertyUseCase.STORAGE_VAULT);
+S3Properties s3 = S3Properties.of(properties);
 Cloud.ObjectStoreInfoPB.Builder obj = s3.toObjectStoreInfoPB();
 TS3StorageParam param = s3.toS3TStorageParam();
 Map<String, String> canonical = s3.getCanonicalProperties();
 ```
 
-新增 `S3PropertyUseCase`，第一阶段至少包含：
+`S3Properties.of(...)` 是已知 S3 入口的统一 API，负责 bind、alias 归一、基础校验、凭据互斥、默认值和 canonical map。`StorageProperties.createPrimary(...)` 继续保留给 TVF、load、catalog 等“不确定存储类型”的泛化入口，由它根据 `fs.xx.support` 或 provider guess 选择 `S3Properties` / `OSSProperties` / `COSProperties` 等具体实现。对于 `CREATE RESOURCE type=s3` 和 `CREATE STORAGE VAULT type=s3` 这种已明确是 S3 的入口，应直接使用 `S3Properties.of(...)`，避免再引入 use-case 分叉。
 
-```java
-RESOURCE
-STORAGE_VAULT
-```
+统一后只保留一套行为边界：
 
-两个 use case 的边界：
-
-1. `RESOURCE` 对应普通 `CREATE RESOURCE type=s3`。它面向 `TS3StorageParam`、storage policy、S3 TVF resource 复用等路径，能力应保持和普通 FE S3 路径一致。
-2. `STORAGE_VAULT` 对应 Cloud `CREATE STORAGE VAULT type=s3`。它面向 `ObjectStoreInfoPB`，能力必须按本期同步补齐后的 Cloud MetaService / BE / Recycler 真实支持面校验。
+1. 输入语义一致：同一组 `s3.*` / `AWS_*` / historical alias 在内核 `S3Resource`、Cloud storage vault、TVF resource 复用路径中的解析结果一致。
+2. 凭据语义一致：AK/SK、AK/SK/token、role ARN + external ID、provider chain 的校验和互斥清理一致。
+3. 输出适配不同：普通 resource 输出 `TS3StorageParam` 或 backend properties；Cloud vault 输出 `ObjectStoreInfoPB`。输出缺字段时应补齐 wire 能力，而不是在调用方拆出不同行为。
 
 现有 static helper 保留为兼容 wrapper：
 
@@ -122,7 +120,7 @@ STORAGE_VAULT
 3. Role：`s3.role_arn` + optional `s3.external_id`。
 4. Provider chain：`s3.credentials_provider_type`。
 
-`S3PropertyUseCase.STORAGE_VAULT` 在本期需要端到端对齐以下凭据形态：
+本期统一支持以下凭据形态：
 
 1. 支持 AK/SK。
 2. 支持 AK/SK + session token。token 只能和 AK/SK 同时使用，切换到 role 或 provider chain 时必须清理。
@@ -132,14 +130,14 @@ STORAGE_VAULT
 
 ## 7. Cloud 能力差异
 
-| 能力 | 普通 `S3Properties` / FE 路径 | Cloud storage vault 当前状态 | 本期处理 |
+| 能力 | 内核 `S3Properties` 路径 | Cloud storage vault 当前状态 | 本期处理 |
 | --- | --- | --- | --- |
 | AK/SK | 支持 | 支持，MetaService 会加密保存 AK/SK | 对齐到 `S3Properties` |
 | AK/SK + session token | `S3Properties` 和 `TS3StorageParam` 支持 | 不支持。`ObjectStoreInfoPB` 没有 token 字段，BE/Recycler 从 PB 构造 `S3Conf` 时 token 为空 | 本期补齐：PB 增加 token，MetaService 加密/脱敏，BE/Recycler 读取并创建 session credentials |
 | token 过期时间 / refresh | 有部分属性雏形或其他设计路线 | 不支持。PB 无 expires 字段，也无刷新协议 | 本期不做自动刷新，只保证显式 token 可持久化、可脱敏、可访问 |
 | role ARN + external ID | 支持 | 部分支持。Cloud 只允许 `provider=S3` 且 `cred_provider_type=INSTANCE_PROFILE` | 本期保持 role ARN 使用 `INSTANCE_PROFILE` base provider，FE 统一解析后按 Cloud 真实访问链路校验 |
 | generic provider chain | `S3Properties` 支持多种模式 | 不完整。PB 只有 `DEFAULT/SIMPLE/INSTANCE_PROFILE`，MetaService 创建 vault 实际要求 AK/SK 或 role ARN，Recycler 没有完整 provider factory | 本期补齐可持久化 provider type；FE/Thrift/PB/BE/Recycler 同步更新 |
-| web identity / env / system properties | 普通 FE 路径可表达部分模式 | Cloud vault 目前不能完整表达 | 本期只持久化 provider type，不持久化派生凭据；要求运行环境对 FE/BE/Recycler 一致可用 |
+| web identity / env / system properties | 内核路径可表达部分模式 | Cloud vault 目前不能完整表达 | 本期只持久化 provider type，不持久化派生凭据；要求运行环境对 FE/BE/Recycler 一致可用 |
 | `use_path_style` | 支持 | PB 有字段，BE/Recycler 会读取 | 对齐 |
 | `external_endpoint` | `S3Properties` 有 `s3.external_endpoint` | PB 有字段，展示路径也在用 | 保留并对齐 |
 | provider 大小写和枚举 | 可统一校验 | PB 枚举固定 | FE 归一后写 PB |
@@ -147,10 +145,10 @@ STORAGE_VAULT
 
 关键结论：
 
-1. 第一阶段从 FE-only 调整为端到端能力补齐，不能只在 FE 接受参数。
+1. 本期是 Cloud 和内核端到端能力补齐，不能只在入口侧接受参数。
 2. `s3.session_token` / `AWS_TOKEN` 在普通 `TS3StorageParam` 路径和 Cloud storage vault 路径都应可用。
-3. FE 只能在确认 MetaService / BE / Recycler 都支持对应字段后放开 Cloud vault token，否则必须通过版本门禁报错，不能静默降级。
-4. `S3Resource` 的普通 resource 语义不受 Cloud vault 限制影响。Cloud-only 限制只能放在 `STORAGE_VAULT` use case。
+3. 入口侧只能在确认 MetaService / BE / Recycler 都支持对应字段后放开 Cloud vault token，否则必须通过版本门禁报错，不能静默降级。
+4. `S3Resource` 和 Cloud storage vault 的 S3 参数行为应保持一致。Cloud 侧如果缺 wire 字段或读取逻辑，本期补齐后端能力，而不是在 FE 入口拆出不同校验。
 
 ## 8. 调用点迁移
 
@@ -158,7 +156,7 @@ STORAGE_VAULT
 
 `S3Resource.setProperties()`：
 
-1. 调用 `S3Properties.forUseCase(properties, RESOURCE)`。
+1. 调用 `S3Properties.of(properties)`。
 2. 使用 canonical map 执行 required 校验、endpoint scheme 补齐、region 推断和 ping。
 3. 保留 `s3_validity_check` 行为。
 4. 保留 role 和 AK/SK 的互斥清理语义。
@@ -175,7 +173,7 @@ STORAGE_VAULT
 `S3StorageVault.checkCreationProperties()`：
 
 1. 不再只检查 `s3.root.path`。
-2. 调用 `S3Properties.forUseCase(properties, STORAGE_VAULT).validateFor(STORAGE_VAULT)`。
+2. 调用 `S3Properties.of(properties)`，复用和 `S3Resource` 一致的解析、校验和凭据互斥规则。
 3. `s3.root.path` 继续映射到 `ObjectStoreInfoPB.prefix`。
 
 ### 8.3 `StorageVaultMgr`
@@ -183,7 +181,7 @@ STORAGE_VAULT
 `buildAlterS3VaultRequest()`：
 
 1. 不再逐个 key 读取 map。
-2. 使用 `S3Properties.forUseCase(properties, STORAGE_VAULT).toObjectStoreInfoPB()`。
+2. 使用 `S3Properties.of(properties).toObjectStoreInfoPB()`。
 3. 保留 `VAULT_NAME` rename 逻辑。
 
 ### 8.4 `ObjectStoreInfoPB` / MetaService / BE / Recycler
@@ -215,7 +213,7 @@ Cloud Recycler：
 
 继续接受历史 SQL 中的 `AWS_*`、canonical `s3.*`、以及 Cloud 常见短 key。新实现只改变冲突行为：历史上可能静默选择某个值的冲突输入，迁移后应失败。
 
-普通 `CREATE RESOURCE type=s3` 仍然是公开兼容面，不能只按 Cloud vault 的必填项和能力限制校验。`STORAGE_VAULT` 的额外限制，例如 provider chain 运行环境要求和组件版本门禁，只适用于 `CREATE STORAGE VAULT`。
+普通 `CREATE RESOURCE type=s3` 和 `CREATE STORAGE VAULT type=s3` 共享同一套 S3 参数兼容规则。Cloud vault 的组件版本门禁属于发布和部署约束，不应变成另一套用户参数语义。
 
 ### 9.2 Metadata 兼容
 
@@ -255,7 +253,7 @@ Cloud storage vault 本期会新增 `ObjectStoreInfoPB.token`，并保持 option
 5. Session token 如果在混部版本中被旧 MetaService / BE / Recycler 忽略，会造成用户误以为短期凭据生效。需要版本门禁或明确的部署顺序。
 6. Redaction 漏敏风险增加。新增 alias 或 canonical 输出后必须补齐脱敏测试。
 7. Endpoint scheme 和 region 推断可能改变 ping 行为。应先用 UT 锁定旧行为，再迁移。
-8. 如果把 Cloud vault 限制错误下沉到 `S3Resource`，会破坏 storage policy、冷热分层、S3 TVF resource 复用等普通 `CREATE RESOURCE` 场景。
+8. 如果把 Cloud vault 的部署门禁、PB 输出约束或 MetaService 约束错误应用到 `S3Resource`，会破坏 storage policy、冷热分层、S3 TVF resource 复用等普通 `CREATE RESOURCE` 场景。
 9. token 加密复用 AK/SK encryption info 时要保证旧 metadata 兼容，不能让旧 AK/SK 解密路径失败。
 
 ## 11. 测试计划
@@ -265,8 +263,8 @@ Cloud storage vault 本期会新增 `ObjectStoreInfoPB.token`，并保持 option
 1. `S3PropertiesTest`
    - canonical key 和 `AWS_*` alias 归一。
    - alias 冲突报错。
-   - `RESOURCE` / `STORAGE_VAULT` required 校验。
-   - AK/SK、role、session token、provider chain 的 use-case 差异。
+   - `S3Resource` / `S3StorageVault` 使用相同输入得到相同 canonical properties。
+   - AK/SK、role、session token、provider chain 的统一校验和互斥清理。
 2. `S3ResourceTest`
    - `AWS_*` 和 `s3.*` 输入得到一致 canonical properties。
    - role 与 AK/SK alter 互斥清理语义保持不变。
