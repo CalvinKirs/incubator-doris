@@ -2,26 +2,38 @@
 
 日期：2026-04-27  
 状态：方案草案  
-范围：FE-only，先覆盖 `S3Resource` / `S3StorageVault` / `StorageVaultMgr`
+范围：FE-only，先覆盖普通 `S3Resource` 与 Cloud `S3StorageVault` / `StorageVaultMgr`
 
 ## 1. 背景
 
-FE 当前存在两套 S3-compatible object storage 参数处理方式：
+FE 当前存在多套 S3-compatible object storage 参数处理方式：
 
 1. 普通 FE 存储路径逐步收敛到 `S3Properties`，支持 `s3.*`、`AWS_*`、role、provider chain、session token 等参数入口。
-2. Cloud 相关路径仍有不少代码逐个 key 取值，例如 `S3Resource`、`S3StorageVault`、`StorageVaultMgr` 构造 `ObjectStoreInfoPB` 时直接读取 map。
+2. 普通 `CREATE RESOURCE type=s3` 由 `S3Resource` 承载，服务 storage policy、冷热分层、S3 TVF resource 复用等非 Cloud-only 场景。
+3. Cloud storage vault 入口复用了 `S3Resource` 的属性处理，但最终通过 `StorageVaultMgr` 构造 `ObjectStoreInfoPB`。这条链路仍有不少代码逐个 key 取值。
 
 这导致同一类参数在不同入口的行为不一致：某些入口支持 alias，某些入口不支持；某些入口会处理 role，某些入口只处理 AK/SK；Cloud storage vault 的真实能力也容易和 `S3Properties` 的普通 FE 能力混在一起。
+
+## 1.1 `CREATE RESOURCE` 当前使用面
+
+`S3Resource` 不是 Cloud-only。它是普通 `CREATE RESOURCE type=s3` 的实现，当前至少被以下业务使用：
+
+1. Storage policy / 冷热分层 / tiered storage。用户先 `CREATE RESOURCE type=s3`，再在 `CREATE STORAGE POLICY` 中通过 `storage_resource` 引用。FE 会把 `S3Resource` 转成 `TS3StorageParam` 推给 BE。
+2. S3 TVF resource 复用。`S3(...)` TVF 可以通过 `"resource" = "<resource_name>"` 复用 `S3Resource` 中的连接和凭据参数。
+3. Cloud storage vault 内部复用。用户入口是 `CREATE STORAGE VAULT`，但 `S3StorageVault` 复用了 `S3Resource` 的部分属性处理逻辑，最终再生成 Cloud `ObjectStoreInfoPB`。
+
+因此实现时必须把 `RESOURCE` 和 `STORAGE_VAULT` 分成两个 use case。普通 `RESOURCE` 不能因为 Cloud vault 能力较窄而被错误收紧。
 
 ## 2. 目标
 
 第一阶段目标是把 FE Cloud 参数入口收敛到 `S3Properties`：
 
-1. `StorageVault` / `S3Resource` 用户输入统一先归一到 canonical `s3.*`。
+1. 普通 `S3Resource` 与 Cloud `StorageVault` 用户输入统一先归一到 canonical `s3.*`。
 2. AK/SK、role ARN、external ID、provider、`use_path_style` 等凭据和连接参数统一由 `S3Properties` 解析和校验。
 3. `ObjectStoreInfoPB`、`TS3StorageParam`、backend properties 都从 `S3Properties` 实例生成。
 4. 保留旧 SQL 和旧 metadata 兼容，不改 Cloud MetaService protobuf，不改 Cloud/BE C++ 读取逻辑。
 5. 明确写清 Cloud storage vault 当前没有对齐的能力，避免 FE 统一后误认为 Cloud 已支持全部 `S3Properties` 能力。
+6. 保持普通 `CREATE RESOURCE type=s3` 的非 Cloud 行为，尤其是 storage policy、S3 TVF resource 复用和 `TS3StorageParam` token 支持。
 
 ## 3. 非目标
 
@@ -31,6 +43,7 @@ FE 当前存在两套 S3-compatible object storage 参数处理方式：
 2. 不修改 `cloud/src` / `be/src` 中 PB 到 `S3Conf` 的读取逻辑。
 3. 不把 Cloud stage 的 `access_type`、`role_name` 纳入 `S3Properties`。这些是 stage 语义，不是通用 S3 参数。
 4. 不承诺 Cloud storage vault 支持 session token、token refresh、web identity、environment/system property provider 等普通 FE 路径可表达但 Cloud 未完整支持的能力。
+5. 不把 `S3Resource` 视为 Cloud-only，不移除或弱化 storage policy、冷热分层、S3 TVF 等普通 resource 使用场景。
 
 ## 4. 核心设计
 
@@ -50,6 +63,11 @@ Map<String, String> canonical = s3.getCanonicalProperties();
 RESOURCE
 STORAGE_VAULT
 ```
+
+两个 use case 的边界：
+
+1. `RESOURCE` 对应普通 `CREATE RESOURCE type=s3`。它面向 `TS3StorageParam`、storage policy、S3 TVF resource 复用等路径，能力应保持和普通 FE S3 路径一致。
+2. `STORAGE_VAULT` 对应 Cloud `CREATE STORAGE VAULT type=s3`。它面向 `ObjectStoreInfoPB`，能力必须按 Cloud MetaService / BE / Recycler 当前真实支持面收紧。
 
 现有 static helper 保留为兼容 wrapper：
 
@@ -123,6 +141,7 @@ STORAGE_VAULT
 1. 第一阶段是 FE 参数统一，不扩大 Cloud storage vault 的实际能力。
 2. `s3.session_token` / `AWS_TOKEN` 在普通 `TS3StorageParam` 路径可用，但在 Cloud storage vault 路径不可用。
 3. FE 统一后应 fail fast，不能继续接受 token 后静默丢弃。
+4. `S3Resource` 的普通 resource 语义不受 Cloud vault 限制影响。Cloud-only 限制只能放在 `STORAGE_VAULT` use case。
 
 ## 8. 调用点迁移
 
@@ -134,6 +153,7 @@ STORAGE_VAULT
 2. 使用 canonical map 执行 required 校验、endpoint scheme 补齐、region 推断和 ping。
 3. 保留 `s3_validity_check` 行为。
 4. 保留 role 和 AK/SK 的互斥清理语义。
+5. 保留普通 resource 到 `TS3StorageParam` 的能力，包括 session token。
 
 `S3Resource.modifyProperties()`：
 
@@ -162,6 +182,8 @@ STORAGE_VAULT
 ### 9.1 输入兼容
 
 继续接受历史 SQL 中的 `AWS_*`、canonical `s3.*`、以及 Cloud 常见短 key。新实现只改变冲突行为：历史上可能静默选择某个值的冲突输入，迁移后应失败。
+
+普通 `CREATE RESOURCE type=s3` 仍然是公开兼容面，不能只按 Cloud vault 的必填项和能力限制校验。`STORAGE_VAULT` 的额外限制，例如不支持 session token，只适用于 `CREATE STORAGE VAULT`。
 
 ### 9.2 Metadata 兼容
 
@@ -200,6 +222,7 @@ Cloud storage vault 的 `ObjectStoreInfoPB` 没有 token 字段，所以 `STORAG
 5. Session token 如果继续被静默忽略，会造成用户误以为短期凭据生效。必须在 `STORAGE_VAULT` 下 fail fast。
 6. Redaction 漏敏风险增加。新增 alias 或 canonical 输出后必须补齐脱敏测试。
 7. Endpoint scheme 和 region 推断可能改变 ping 行为。应先用 UT 锁定旧行为，再迁移。
+8. 如果把 Cloud vault 限制错误下沉到 `S3Resource`，会破坏 storage policy、冷热分层、S3 TVF resource 复用等普通 `CREATE RESOURCE` 场景。
 
 ## 11. 测试计划
 
@@ -213,7 +236,9 @@ FE 单测优先：
 2. `S3ResourceTest`
    - `AWS_*` 和 `s3.*` 输入得到一致 canonical properties。
    - role 与 AK/SK alter 互斥清理语义保持不变。
-   - session token 在 resource 普通路径和 Cloud vault 路径的行为分开验证。
+   - session token 在普通 resource / `TS3StorageParam` 路径继续可用。
+   - storage policy 所需的 `s3.root.path` / `s3.bucket` 校验保持不变。
+   - S3 TVF 通过 `"resource" = "<resource_name>"` 复用 resource 参数的行为保持不变。
 3. `S3StorageVaultTest` / `StorageVaultMgrTest`
    - old key 和 canonical key 生成相同 `ObjectStoreInfoPB`。
    - `s3.session_token` / `AWS_TOKEN` 在 storage vault 下报错。
