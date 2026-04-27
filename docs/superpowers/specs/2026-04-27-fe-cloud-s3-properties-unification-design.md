@@ -24,6 +24,15 @@ FE 当前存在多套 S3-compatible object storage 参数处理方式：
 
 因此实现时必须把 `RESOURCE` 和 `STORAGE_VAULT` 分成两个 use case。普通 `RESOURCE` 不能因为 Cloud vault 能力较窄而被错误收紧。
 
+## 1.2 `S3Resource` 到实际访问的参数消费链路
+
+当前 `S3Resource` 的下游消费大多已经会经过 `S3Properties` 或 `StorageProperties -> S3Properties`，但 `S3Resource` 入口层本身还没有完全对象化为 `S3Properties`。
+
+1. S3 TVF resource 复用路径：`ExternalFileTableValuedFunction.parseCommonProperties()` 先读取 `resource.getCopiedProperties()`，再用 TVF 显式参数覆盖 resource 参数；随后 `S3TableValuedFunction` 调用 `StorageProperties.createPrimary()`，S3 场景会实例化 `S3Properties` 并生成 backend connect properties。因此这条链路的最终访问参数会走 `S3Properties`。
+2. Storage policy / 冷热分层路径：FE 不直接访问对象存储，而是在 `PushStoragePolicyTask` 中把 `S3Resource.getCopiedProperties()` 交给 `S3Properties.getS3TStorageParam()`，生成 `TS3StorageParam` 下发给 BE，真正访问发生在 BE。因此这条链路的 FE 参数转换会走 `S3Properties`，但访问执行不在 FE。
+3. Cloud storage vault 路径：`S3StorageVault` 复用 `S3Resource` 保存属性，`StorageVaultMgr` 通过 `S3Properties.getObjStoreInfoPB()` 生成 `ObjectStoreInfoPB`。这条链路目前已复用部分 `S3Properties` static helper，但仍需要按 `STORAGE_VAULT` use case 补齐能力收紧和 fail fast。
+4. `S3Resource` 自身 create/alter/ping 仍是 `Map<String, String>` + `S3Properties` static helper + 手工补齐 endpoint/region 的模式。第一阶段统一的重点不是否认下游已经复用 `S3Properties`，而是把入口解析、alias 合并、凭据模型、use case 校验都收敛到同一个 `S3Properties` 实例 API。
+
 ## 2. 目标
 
 第一阶段目标是把 FE Cloud 参数入口收敛到 `S3Properties`：
