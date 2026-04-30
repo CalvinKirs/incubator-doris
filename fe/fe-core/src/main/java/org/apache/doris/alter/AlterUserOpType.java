@@ -20,6 +20,7 @@ package org.apache.doris.alter;
 
 public enum AlterUserOpType {
     SET_PASSWORD,
+    SET_AUTHENTICATION_INTEGRATION,
     SET_ROLE,
     SET_PASSWORD_POLICY,
     LOCK_ACCOUNT,

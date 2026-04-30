@@ -806,6 +806,13 @@ public class NereidsParserTest extends ParserTestBase {
     }
 
     @Test
+    public void testUserIdentifiedWithAuthenticationIntegration() {
+        NereidsParser parser = new NereidsParser();
+        parser.parseSingle("create user u1 identified with corp_ldap");
+        parser.parseSingle("alter user if exists u2 identified with corp_ldap");
+    }
+
+    @Test
     public void testCreateRepository() {
         NereidsParser nereidsParser = new NereidsParser();
         String sql = "create repository a with S3 on location 's3://s3-repo' "

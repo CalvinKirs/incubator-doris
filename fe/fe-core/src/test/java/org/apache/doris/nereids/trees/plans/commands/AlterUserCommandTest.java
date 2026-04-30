@@ -21,6 +21,8 @@ import org.apache.doris.analysis.PassVar;
 import org.apache.doris.analysis.PasswordOptions;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.alter.AlterUserOpType;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
@@ -31,6 +33,7 @@ import org.apache.doris.nereids.trees.plans.commands.info.AlterUserInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -66,6 +69,18 @@ public class AlterUserCommandTest extends TestWithFeService {
         AlterUserInfo alterUserInfo = new AlterUserInfo(true, userDesc, passwordOptions, null);
         AlterUserCommand alterUserCommand = new AlterUserCommand(alterUserInfo);
         Assertions.assertDoesNotThrow(() -> alterUserCommand.validate());
+
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr().replayCreateAuthenticationIntegration(
+                AuthenticationIntegrationMeta.fromCreateSql("corp_ldap_alter_user_test",
+                        ImmutableMap.of("type", "ldap"), null, "root"));
+        UserDesc integrationUserDesc = UserDesc.withAuthenticationIntegration(
+                userIdentity, "corp_ldap_alter_user_test");
+        AlterUserInfo integrationAlterUserInfo = new AlterUserInfo(
+                true, integrationUserDesc, passwordOptions, null);
+        AlterUserCommand integrationAlterUserCommand = new AlterUserCommand(integrationAlterUserInfo);
+        Assertions.assertDoesNotThrow(() -> integrationAlterUserCommand.validate());
+        Assertions.assertEquals(AlterUserOpType.SET_AUTHENTICATION_INTEGRATION,
+                integrationAlterUserInfo.getOpType());
 
         //test ops.size() > 1
         AlterUserInfo alterUserInfo02 = new AlterUserInfo(true, userDesc, passwordOptions, "alterUserInfo02");

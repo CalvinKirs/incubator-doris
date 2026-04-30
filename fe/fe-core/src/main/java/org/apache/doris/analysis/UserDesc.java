@@ -22,6 +22,7 @@ public class UserDesc {
     private UserIdentity userIdent;
     private PassVar passVar;
     private boolean hasPassword = true;
+    private String authenticationIntegrationName;
 
     public UserDesc(UserIdentity userIdent) {
         this(userIdent, new PassVar("", false));
@@ -31,6 +32,12 @@ public class UserDesc {
     public UserDesc(UserIdentity userIdent, PassVar passVar) {
         this.userIdent = userIdent;
         this.passVar = passVar;
+    }
+
+    public static UserDesc withAuthenticationIntegration(UserIdentity userIdent, String integrationName) {
+        UserDesc userDesc = new UserDesc(userIdent);
+        userDesc.authenticationIntegrationName = integrationName;
+        return userDesc;
     }
 
     // For unit test only
@@ -49,5 +56,13 @@ public class UserDesc {
 
     public boolean hasPassword() {
         return hasPassword;
+    }
+
+    public boolean hasAuthenticationIntegration() {
+        return authenticationIntegrationName != null;
+    }
+
+    public String getAuthenticationIntegrationName() {
+        return authenticationIntegrationName;
     }
 }

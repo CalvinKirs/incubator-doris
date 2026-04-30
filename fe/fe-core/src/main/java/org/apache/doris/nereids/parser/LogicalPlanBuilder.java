@@ -9430,6 +9430,9 @@ public class LogicalPlanBuilder extends DorisParserBaseVisitor<Object> {
         if (ctx.IDENTIFIED() == null) {
             return new UserDesc(userIdentity);
         }
+        if (ctx.integrationName != null) {
+            return UserDesc.withAuthenticationIntegration(userIdentity, stripQuotes(ctx.integrationName.getText()));
+        }
         String password = stripQuotes(ctx.STRING_LITERAL().getText());
         boolean isPlain = ctx.PASSWORD() == null;
         return new UserDesc(userIdentity, new PassVar(password, isPlain));

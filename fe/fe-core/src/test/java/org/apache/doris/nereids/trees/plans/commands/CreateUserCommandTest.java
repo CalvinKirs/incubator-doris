@@ -19,15 +19,18 @@ package org.apache.doris.nereids.trees.plans.commands;
 
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
+import org.apache.doris.authentication.AuthenticationIntegrationMeta;
 import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.jmockit.Deencapsulation;
 import org.apache.doris.mysql.privilege.AccessControllerManager;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.plans.commands.info.CreateUserInfo;
 import org.apache.doris.qe.ConnectContext;
 import org.apache.doris.utframe.TestWithFeService;
 
+import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -44,7 +47,7 @@ public class CreateUserCommandTest extends TestWithFeService {
     }
 
     @Test
-    public void testValidateNormal() {
+    public void testValidateNormal() throws Exception {
         Env env = Env.getCurrentEnv();
         AccessControllerManager spyAcm = Mockito.spy(env.getAccessManager());
         Mockito.doReturn(true).when(spyAcm).checkGlobalPriv(
@@ -66,6 +69,18 @@ public class CreateUserCommandTest extends TestWithFeService {
         CreateUserInfo info2 = command.getInfo();
         Assertions.assertDoesNotThrow(() -> info2.validate());
         Assertions.assertEquals(new String(info2.getPassword()), "");
+
+        Env.getCurrentEnv().getAuthenticationIntegrationMgr().replayCreateAuthenticationIntegration(
+                AuthenticationIntegrationMeta.fromCreateSql("corp_ldap_create_user_test",
+                        ImmutableMap.of("type", "ldap"), null, "root"));
+        command = new CreateUserCommand(new CreateUserInfo(
+                UserDesc.withAuthenticationIntegration(
+                        new UserIdentity("integration_user", "%"), "corp_ldap_create_user_test")));
+        CreateUserInfo integrationInfo = command.getInfo();
+        Assertions.assertDoesNotThrow(() -> integrationInfo.validate());
+        Assertions.assertEquals(User.AuthenticationMethod.INTEGRATION, integrationInfo.getAuthenticationMethod());
+        Assertions.assertEquals("corp_ldap_create_user_test",
+                integrationInfo.getAuthenticationIntegrationName());
     }
 
     @Test

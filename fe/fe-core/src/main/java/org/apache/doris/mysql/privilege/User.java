@@ -33,6 +33,12 @@ import java.io.IOException;
 
 public class User implements Comparable<User>, GsonPostProcessable {
     private static final Logger LOG = LogManager.getLogger(User.class);
+
+    public enum AuthenticationMethod {
+        PASSWORD,
+        INTEGRATION
+    }
+
     @SerializedName(value = "userIdentity")
     private UserIdentity userIdentity;
     private UserIdentity domainUserIdentity;
@@ -42,6 +48,10 @@ public class User implements Comparable<User>, GsonPostProcessable {
     protected boolean isAnyHost = false;
     @SerializedName(value = "password")
     private Password password;
+    @SerializedName(value = "authenticationMethod")
+    private AuthenticationMethod authenticationMethod;
+    @SerializedName(value = "authenticationIntegrationName")
+    private String authenticationIntegrationName;
 
     @SerializedName(value = "userid")
     private String origUserId = "";
@@ -87,6 +97,34 @@ public class User implements Comparable<User>, GsonPostProcessable {
 
     public void setPassword(byte[] password) {
         this.password = new Password(password);
+    }
+
+    public void setPasswordAuthentication(byte[] password) {
+        setPassword(password);
+        authenticationMethod = AuthenticationMethod.PASSWORD;
+        authenticationIntegrationName = null;
+    }
+
+    public void setAuthenticationIntegration(String integrationName) {
+        password = new Password(new byte[0]);
+        authenticationMethod = AuthenticationMethod.INTEGRATION;
+        authenticationIntegrationName = integrationName;
+    }
+
+    public boolean isAuthenticationMethodSpecified() {
+        return authenticationMethod != null;
+    }
+
+    public boolean isPasswordAuthentication() {
+        return AuthenticationMethod.PASSWORD.equals(authenticationMethod);
+    }
+
+    public boolean isIntegrationAuthentication() {
+        return AuthenticationMethod.INTEGRATION.equals(authenticationMethod);
+    }
+
+    public String getAuthenticationIntegrationName() {
+        return authenticationIntegrationName;
     }
 
     public UserIdentity getUserIdentity() {

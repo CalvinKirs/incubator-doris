@@ -173,6 +173,82 @@ class AuthenticatorManagerTest {
     }
 
     @Test
+    void testAuthenticateUsesBoundAuthenticationIntegrationOnly() throws Exception {
+        Config.authentication_chain = "fallback_ldap";
+        Mockito.when(auth.getAuthenticationIntegrationForUser(USER_NAME, REMOTE_IP)).thenReturn("corp_ldap");
+
+        Authenticator configuredAuthenticator = Mockito.mock(Authenticator.class);
+        Mockito.when(configuredAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+
+        Authenticator boundAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver boundResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(boundAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(boundAuthenticator.getPasswordResolver()).thenReturn(boundResolver);
+        Mockito.when(boundResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+        Mockito.when(boundAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(new AuthenticateResponse(true,
+                        org.apache.doris.analysis.UserIdentity.createAnalyzedUserIdentWithIp(USER_NAME, REMOTE_IP),
+                        false));
+
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("authTypeAuthenticator", configuredAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(boundAuthenticator).when(manager).getAuthenticationIntegrationAuthenticator("corp_ldap");
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertTrue(result);
+        Mockito.verify(boundAuthenticator).authenticate(Mockito.any());
+        Mockito.verify(configuredAuthenticator, Mockito.never()).authenticate(Mockito.any());
+        Mockito.verify(chainAuthenticator, Mockito.never()).authenticate(Mockito.any());
+    }
+
+    @Test
+    void testAuthenticateUsesPasswordBindingWithoutChainFallback() throws Exception {
+        Config.authentication_chain = "corp_ldap";
+        Mockito.when(auth.isPasswordAuthenticationUser(USER_NAME, REMOTE_IP)).thenReturn(true);
+
+        Authenticator passwordAuthenticator = Mockito.mock(Authenticator.class);
+        PasswordResolver passwordResolver = Mockito.mock(PasswordResolver.class);
+        Mockito.when(passwordAuthenticator.canDeal(USER_NAME)).thenReturn(true);
+        Mockito.when(passwordAuthenticator.getPasswordResolver()).thenReturn(passwordResolver);
+        Mockito.when(passwordResolver.resolveAuthenticateRequest(Mockito.eq(USER_NAME), Mockito.any(), Mockito.any(),
+                Mockito.any(), Mockito.any(), Mockito.any()))
+                .thenReturn(authenticateRequest(new ClearPassword("secret")));
+        Mockito.when(passwordAuthenticator.authenticate(Mockito.any()))
+                .thenReturn(AuthenticateResponse.failedResponse);
+
+        Authenticator configuredAuthenticator = Mockito.mock(Authenticator.class);
+        Authenticator chainAuthenticator = Mockito.mock(Authenticator.class);
+        AuthenticatorManager manager = Mockito.spy(new AuthenticatorManager(AuthenticateType.DEFAULT.name()));
+        setStaticField("defaultAuthenticator", passwordAuthenticator);
+        setStaticField("authTypeAuthenticator", configuredAuthenticator);
+        setStaticField("authTypeIdentifier", AuthenticateType.DEFAULT.name());
+        Mockito.doReturn(chainAuthenticator).when(manager).getAuthenticationChainAuthenticator();
+
+        QueryState state = new QueryState();
+        ConnectContext context = mockContext(state);
+
+        boolean result = manager.authenticate(context, USER_NAME, context.getMysqlChannel(),
+                Mockito.mock(MysqlSerializer.class), Mockito.mock(MysqlAuthPacket.class),
+                Mockito.mock(MysqlHandshakePacket.class));
+
+        Assertions.assertFalse(result);
+        Mockito.verify(passwordAuthenticator).authenticate(Mockito.any());
+        Mockito.verify(configuredAuthenticator, Mockito.never()).authenticate(Mockito.any());
+        Mockito.verify(chainAuthenticator, Mockito.never()).authenticate(Mockito.any());
+    }
+
+    @Test
     void testAuthenticateReportsOperationalFailureSummaryWhenAllAttemptsFail() throws Exception {
         Config.authentication_chain = "corp_oidc";
 

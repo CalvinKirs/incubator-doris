@@ -25,6 +25,7 @@ import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.ErrorReport;
 import org.apache.doris.mysql.privilege.PrivPredicate;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.nereids.trees.plans.PlanType;
 import org.apache.doris.nereids.trees.plans.visitor.PlanVisitor;
 import org.apache.doris.qe.ConnectContext;
@@ -95,8 +96,12 @@ public class ShowCreateUserCommand extends ShowCommand {
         // user identity
         sb.append(user);
 
-        // user password
-        sb.append(" IDENTIFIED BY *** ");
+        User storedUser = Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user);
+        if (storedUser != null && storedUser.isIntegrationAuthentication()) {
+            sb.append(" IDENTIFIED WITH ").append(storedUser.getAuthenticationIntegrationName()).append(" ");
+        } else {
+            sb.append(" IDENTIFIED BY *** ");
+        }
 
         // tls requirements
         if (user.getSan() != null) {
@@ -151,8 +156,8 @@ public class ShowCreateUserCommand extends ShowCommand {
         }
 
         // comment
-        if (Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user) != null) {
-            String comment = Env.getCurrentEnv().getAuth().getUserManager().getUserByUserIdentity(user).getComment();
+        if (storedUser != null) {
+            String comment = storedUser.getComment();
             if (comment != null) {
                 sb.append(" COMMENT ").append("\"").append(comment).append("\"");
             }

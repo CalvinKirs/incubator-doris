@@ -93,6 +93,10 @@ public class AlterUserInfo {
         return tlsOptions;
     }
 
+    public String getAuthenticationIntegrationName() {
+        return userDesc.getAuthenticationIntegrationName();
+    }
+
     /**
      * validate
      */
@@ -102,6 +106,10 @@ public class AlterUserInfo {
 
         if (userDesc.hasPassword()) {
             ops.add(AlterUserOpType.SET_PASSWORD);
+        }
+        if (userDesc.hasAuthenticationIntegration()) {
+            checkAuthenticationIntegrationExists(userDesc.getAuthenticationIntegrationName());
+            ops.add(AlterUserOpType.SET_AUTHENTICATION_INTEGRATION);
         }
 
         // may be set comment to "", so not use `Strings.isNullOrEmpty`
@@ -139,6 +147,14 @@ public class AlterUserInfo {
 
         if (!Env.getCurrentEnv().getAccessManager().checkGlobalPriv(ConnectContext.get(), PrivPredicate.GRANT)) {
             ErrorReport.reportAnalysisException(ErrorCode.ERR_SPECIFIC_ACCESS_DENIED_ERROR, "GRANT");
+        }
+    }
+
+    private void checkAuthenticationIntegrationExists(String authenticationIntegrationName) throws AnalysisException {
+        if (Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .getAuthenticationIntegration(authenticationIntegrationName) == null) {
+            throw new AnalysisException("Authentication integration " + authenticationIntegrationName
+                    + " does not exist");
         }
     }
 }

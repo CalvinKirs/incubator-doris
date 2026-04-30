@@ -44,15 +44,24 @@ public class AlterUserOperationLog implements Writable {
 
     @SerializedName(value = "comment")
     private String comment;
+    @SerializedName(value = "authenticationIntegrationName")
+    private String authenticationIntegrationName;
 
     public AlterUserOperationLog(AlterUserOpType opType, UserIdentity userIdent, byte[] password,
                                  String role, PasswordOptions passwordOptions, String comment) {
+        this(opType, userIdent, password, role, passwordOptions, comment, null);
+    }
+
+    public AlterUserOperationLog(AlterUserOpType opType, UserIdentity userIdent, byte[] password,
+                                 String role, PasswordOptions passwordOptions, String comment,
+                                 String authenticationIntegrationName) {
         this.op = opType;
         this.userIdent = userIdent;
         this.password = password;
         this.role = role;
         this.passwordOptions = passwordOptions;
         this.comment = comment;
+        this.authenticationIntegrationName = authenticationIntegrationName;
     }
 
     public AlterUserOpType getOp() {
@@ -77,6 +86,10 @@ public class AlterUserOperationLog implements Writable {
 
     public String getComment() {
         return comment;
+    }
+
+    public String getAuthenticationIntegrationName() {
+        return authenticationIntegrationName;
     }
 
     @Override

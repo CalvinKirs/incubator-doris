@@ -20,6 +20,7 @@ package org.apache.doris.nereids.trees.plans.commands;
 import org.apache.doris.analysis.UserDesc;
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.catalog.DomainResolver;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.AnalysisException;
 import org.apache.doris.common.UserException;
 import org.apache.doris.mysql.privilege.Auth;
@@ -89,5 +90,19 @@ public class ShowCreateUserCommandTest extends TestWithFeService {
         sc = new ShowCreateUserCommand(userIdentity);
         ShowCreateUserCommand finalSc2 = sc;
         Assertions.assertThrows(AnalysisException.class, () -> finalSc2.handleShowCreateUser(connectContext, null));
+    }
+
+    @Test
+    void testToSqlForAuthenticationIntegrationUser() throws Exception {
+        UserIdentity userIdentity = new UserIdentity("integration_show_user", "%");
+        UserDesc userDesc = new UserDesc(userIdentity, "12345", true);
+        CreateUserInfo info = new CreateUserInfo(true, userDesc, null, null, "");
+        new CreateUserCommand(info).run(connectContext, null);
+
+        Env.getCurrentEnv().getAuth().getUserManager()
+                .setAuthenticationIntegration(userIdentity, "corp_ldap", true);
+
+        ShowCreateUserCommand command = new ShowCreateUserCommand(userIdentity);
+        Assertions.assertTrue(command.toSql(userIdentity).contains("IDENTIFIED WITH corp_ldap"));
     }
 }

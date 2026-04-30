@@ -173,6 +173,26 @@ public class UserManager implements Writable {
         }
     }
 
+    public User getUserByNameAndHost(String remoteUser, String remoteHost) {
+        rlock.lock();
+        try {
+            return getUserByNameAndHostWithoutLock(remoteUser, remoteHost);
+        } finally {
+            rlock.unlock();
+        }
+    }
+
+    private User getUserByNameAndHostWithoutLock(String remoteUser, String remoteHost) {
+        List<User> users = nameToUsers.getOrDefault(remoteUser, Lists.newArrayList());
+        for (User user : users) {
+            if (!user.getUserIdentity().isDomain()
+                    && (user.isAnyHost() || user.getHostPattern().match(remoteHost))) {
+                return user;
+            }
+        }
+        return null;
+    }
+
     private String hasRemotePasswd(boolean plain, byte[] remotePasswd) {
         if (plain) {
             return "YES";
@@ -327,7 +347,36 @@ public class UserManager implements Writable {
             }
             return;
         }
-        user.setPassword(password);
+        user.setPasswordAuthentication(password);
+    }
+
+    public void setAuthenticationIntegration(UserIdentity userIdentity, String integrationName, boolean errOnNonExist)
+            throws DdlException {
+        User user = getUserByUserIdentity(userIdentity);
+        if (user == null) {
+            if (errOnNonExist) {
+                throw new DdlException("user " + userIdentity + " does not exist");
+            }
+            return;
+        }
+        user.setAuthenticationIntegration(integrationName);
+    }
+
+    public boolean hasAuthenticationIntegration(String integrationName) {
+        rlock.lock();
+        try {
+            for (List<User> users : nameToUsers.values()) {
+                for (User user : users) {
+                    if (user.isIntegrationAuthentication()
+                            && integrationName.equals(user.getAuthenticationIntegrationName())) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } finally {
+            rlock.unlock();
+        }
     }
 
     public void getAllDomains(Set<String> allDomains) {
@@ -369,7 +418,14 @@ public class UserManager implements Writable {
                         byte[] password = domainUser.getPassword().getPassword();
                         Preconditions.checkNotNull(password, entry.getKey());
                         try {
-                            createUserWithoutLock(userIdent, password, domainUser.getUserIdentity(), true, "");
+                            User resolvedUser = createUserWithoutLock(
+                                    userIdent, password, domainUser.getUserIdentity(), true, "");
+                            if (domainUser.isPasswordAuthentication()) {
+                                resolvedUser.setPasswordAuthentication(password);
+                            } else if (domainUser.isIntegrationAuthentication()) {
+                                resolvedUser.setAuthenticationIntegration(
+                                        domainUser.getAuthenticationIntegrationName());
+                            }
                         } catch (PatternMatcherException e) {
                             LOG.info("failed to create user for user ident: {}, {}", userIdent, e.getMessage());
                         }

@@ -292,6 +292,23 @@ public class Auth implements Writable {
         return !userManager.getUserIdentityUncheckPasswd(remoteUser, remoteHost).isEmpty();
     }
 
+    public boolean isPasswordAuthenticationUser(String remoteUser, String remoteHost) {
+        User user = userManager.getUserByNameAndHost(remoteUser, remoteHost);
+        return user != null && user.isPasswordAuthentication();
+    }
+
+    public String getAuthenticationIntegrationForUser(String remoteUser, String remoteHost) {
+        User user = userManager.getUserByNameAndHost(remoteUser, remoteHost);
+        if (user != null && user.isIntegrationAuthentication()) {
+            return user.getAuthenticationIntegrationName();
+        }
+        return null;
+    }
+
+    public boolean hasAuthenticationIntegration(String integrationName) {
+        return userManager.hasAuthenticationIntegration(integrationName);
+    }
+
     // ==== Global ====
     protected boolean checkGlobalPriv(UserIdentity currentUser, PrivPredicate wanted) {
         readLock();
@@ -496,23 +513,29 @@ public class Auth implements Writable {
     public void createUser(CreateUserInfo info) throws DdlException {
         createUserInternal(info.getUserIdent(), info.getRole(),
                 info.getPassword(), info.isIfNotExist(), info.getPasswordOptions(),
-                info.getComment(), info.getUserId(), false);
+                info.getComment(), info.getUserId(), info.getAuthenticationMethod(),
+                info.getAuthenticationIntegrationName(), false);
     }
 
     public void replayCreateUser(PrivInfo privInfo) {
         try {
             createUserInternal(privInfo.getUserIdent(), privInfo.getRole(), privInfo.getPasswd(), false,
-                    privInfo.getPasswordOptions(), privInfo.getComment(), privInfo.getUserId(), true);
+                    privInfo.getPasswordOptions(), privInfo.getComment(), privInfo.getUserId(),
+                    privInfo.getAuthenticationMethod(), privInfo.getAuthenticationIntegrationName(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
     }
 
     private void createUserInternal(UserIdentity userIdent, String roleName, byte[] password,
-            boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, String userId, boolean isReplay)
+            boolean ignoreIfExists, PasswordOptions passwordOptions, String comment, String userId,
+            User.AuthenticationMethod authenticationMethod, String authenticationIntegrationName, boolean isReplay)
             throws DdlException {
         writeLock();
         try {
+            if (!isReplay && User.AuthenticationMethod.INTEGRATION.equals(authenticationMethod)) {
+                checkAuthenticationIntegrationExists(authenticationIntegrationName);
+            }
             // check if role exist
             Role role = null;
             if (roleName != null) {
@@ -538,6 +561,11 @@ public class Auth implements Writable {
                 if (Strings.isNullOrEmpty(user.getUserId())) {
                     user.setUserId(userId);
                 }
+                if (User.AuthenticationMethod.PASSWORD.equals(authenticationMethod)) {
+                    user.setPasswordAuthentication(password);
+                } else if (User.AuthenticationMethod.INTEGRATION.equals(authenticationMethod)) {
+                    user.setAuthenticationIntegration(authenticationIntegrationName);
+                }
             } catch (PatternMatcherException e) {
                 throw new DdlException("create user failed,", e);
             }
@@ -560,7 +588,8 @@ public class Auth implements Writable {
 
             if (!isReplay) {
                 PrivInfo privInfo = new PrivInfo(userIdent, null, password,
-                        roleName, passwordOptions, comment, userId);
+                        roleName, passwordOptions, comment, userId, authenticationMethod,
+                        authenticationIntegrationName);
                 Env.getCurrentEnv().getEditLog().logCreateUser(privInfo);
             }
             LOG.info("finished to create user: {}, is replay: {}", userIdent, isReplay);
@@ -1678,12 +1707,12 @@ public class Auth implements Writable {
             rootUser.setIsAnalyzed();
             createUserInternal(rootUser, Role.OPERATOR_ROLE, new byte[0],
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION,
-                    "ROOT", ROOT_USER, true /* is replay */);
+                    "ROOT", ROOT_USER, null, null, true /* is replay */);
             UserIdentity adminUser = new UserIdentity(ADMIN_USER, "%");
             adminUser.setIsAnalyzed();
             createUserInternal(adminUser, Role.ADMIN_ROLE, new byte[0],
                     false /* ignore if exists */, PasswordOptions.UNSET_OPTION,
-                    "ADMIN", ADMIN_USER, true /* is replay */);
+                    "ADMIN", ADMIN_USER, null, null, true /* is replay */);
         } catch (DdlException e) {
             LOG.error("should not happened", e);
         }
@@ -1880,13 +1909,13 @@ public class Auth implements Writable {
 
     public void alterUser(AlterUserInfo info) throws DdlException {
         alterUserInternal(info.isIfExist(), info.getOpType(), info.getUserIdent(), info.getPassword(),
-                null, info.getPasswordOptions(), info.getComment(), false);
+                null, info.getPasswordOptions(), info.getComment(), info.getAuthenticationIntegrationName(), false);
     }
 
     public void replayAlterUser(AlterUserOperationLog log) {
         try {
             alterUserInternal(true, log.getOp(), log.getUserIdent(), log.getPassword(), log.getRole(),
-                    log.getPasswordOptions(), log.getComment(), true);
+                    log.getPasswordOptions(), log.getComment(), log.getAuthenticationIntegrationName(), true);
         } catch (DdlException e) {
             LOG.error("should not happen", e);
         }
@@ -1894,7 +1923,7 @@ public class Auth implements Writable {
 
     private void alterUserInternal(boolean ifExists, AlterUserOpType opType, UserIdentity userIdent, byte[] password,
                                    String role, PasswordOptions passwordOptions, String comment,
-                                   boolean isReplay) throws DdlException {
+                                   String authenticationIntegrationName, boolean isReplay) throws DdlException {
         writeLock();
         try {
             if (!doesUserExist(userIdent)) {
@@ -1906,6 +1935,12 @@ public class Auth implements Writable {
             switch (opType) {
                 case SET_PASSWORD:
                     setPasswordInternal(userIdent, password, null, false, false, isReplay);
+                    break;
+                case SET_AUTHENTICATION_INTEGRATION:
+                    if (!isReplay) {
+                        checkAuthenticationIntegrationExists(authenticationIntegrationName);
+                    }
+                    userManager.setAuthenticationIntegration(userIdent, authenticationIntegrationName, true);
                     break;
                 case SET_ROLE:
                     setRoleToUser(userIdent, role);
@@ -1929,7 +1964,7 @@ public class Auth implements Writable {
                 // For SET_PASSWORD:
                 //      the edit log is wrote in "setPasswordInternal"
                 AlterUserOperationLog log = new AlterUserOperationLog(opType, userIdent, password, role,
-                        passwordOptions, comment);
+                        passwordOptions, comment, authenticationIntegrationName);
                 Env.getCurrentEnv().getEditLog().logAlterUser(log);
             }
         } finally {
@@ -1963,6 +1998,14 @@ public class Auth implements Writable {
             throw new DdlException("UserIdentity " + userIdent + " does not exist");
         }
         user.setComment(comment);
+    }
+
+    private void checkAuthenticationIntegrationExists(String authenticationIntegrationName) throws DdlException {
+        if (Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .getAuthenticationIntegration(authenticationIntegrationName) == null) {
+            throw new DdlException("Authentication integration " + authenticationIntegrationName
+                    + " does not exist");
+        }
     }
 
     public Set<String> getAllUser() {

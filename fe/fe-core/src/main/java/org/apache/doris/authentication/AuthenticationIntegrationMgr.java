@@ -168,6 +168,9 @@ public class AuthenticationIntegrationMgr implements Writable {
             if (Env.getCurrentEnv().getRoleMappingMgr().hasRoleMapping(integrationName)) {
                 throw new DdlException("Authentication integration " + integrationName + " still has role mapping");
             }
+            if (Env.getCurrentEnv().getAuth().hasAuthenticationIntegration(integrationName)) {
+                throw new DdlException("Authentication integration " + integrationName + " is still used by user");
+            }
             nameToIntegration.remove(integrationName);
             Env.getCurrentEnv().getEditLog().logDropAuthenticationIntegration(
                     new DropAuthenticationIntegrationOperationLog(integrationName));

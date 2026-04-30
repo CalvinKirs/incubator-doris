@@ -26,6 +26,7 @@ import org.apache.doris.common.io.Text;
 import org.apache.doris.common.io.Writable;
 import org.apache.doris.mysql.privilege.ColPrivilegeKey;
 import org.apache.doris.mysql.privilege.PrivBitSet;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.persist.gson.GsonUtils;
 
 import com.google.gson.annotations.SerializedName;
@@ -64,6 +65,10 @@ public class PrivInfo implements Writable {
 
     @SerializedName(value = "userId")
     private String userId;
+    @SerializedName(value = "authenticationMethod")
+    private User.AuthenticationMethod authenticationMethod;
+    @SerializedName(value = "authenticationIntegrationName")
+    private String authenticationIntegrationName;
 
     private PrivInfo() {
 
@@ -77,6 +82,12 @@ public class PrivInfo implements Writable {
 
     public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
             PasswordOptions passwordOptions, String comment, String userId) {
+        this(userIdent, privs, passwd, role, passwordOptions, comment, userId, null, null);
+    }
+
+    public PrivInfo(UserIdentity userIdent, PrivBitSet privs, byte[] passwd, String role,
+            PasswordOptions passwordOptions, String comment, String userId,
+            User.AuthenticationMethod authenticationMethod, String authenticationIntegrationName) {
         this.userIdent = userIdent;
         this.tblPattern = null;
         this.resourcePattern = null;
@@ -86,6 +97,8 @@ public class PrivInfo implements Writable {
         this.passwordOptions = passwordOptions;
         this.comment = comment;
         this.userId = userId;
+        this.authenticationMethod = authenticationMethod;
+        this.authenticationIntegrationName = authenticationIntegrationName;
     }
 
     public PrivInfo(String role, String comment) {
@@ -169,6 +182,14 @@ public class PrivInfo implements Writable {
 
     public String getUserId() {
         return userId;
+    }
+
+    public User.AuthenticationMethod getAuthenticationMethod() {
+        return authenticationMethod;
+    }
+
+    public String getAuthenticationIntegrationName() {
+        return authenticationIntegrationName;
     }
 
     public PasswordOptions getPasswordOptions() {

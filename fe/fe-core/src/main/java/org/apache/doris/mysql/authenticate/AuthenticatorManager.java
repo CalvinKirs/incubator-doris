@@ -19,6 +19,7 @@ package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.authentication.AuthenticationFailureType;
 import org.apache.doris.authentication.CredentialType;
+import org.apache.doris.catalog.Env;
 import org.apache.doris.common.Config;
 import org.apache.doris.common.ErrorCode;
 import org.apache.doris.common.util.ClassLoaderUtils;
@@ -163,7 +164,20 @@ public class AuthenticatorManager {
                                 MysqlHandshakePacket handshakePacket) throws IOException {
 
         String remoteIp = context.getMysqlChannel().getRemoteIp();
-        Authenticator primaryAuthenticator = chooseAuthenticator(userName, remoteIp);
+        String authenticationIntegrationName =
+                Env.getCurrentEnv().getAuth().getAuthenticationIntegrationForUser(userName, remoteIp);
+        boolean passwordAuthenticationUser = authenticationIntegrationName == null
+                && Env.getCurrentEnv().getAuth().isPasswordAuthenticationUser(userName, remoteIp);
+        Authenticator primaryAuthenticator = chooseAuthenticator(
+                userName, remoteIp, authenticationIntegrationName, passwordAuthenticationUser);
+        boolean authenticationMethodBound = authenticationIntegrationName != null || passwordAuthenticationUser;
+        if (!primaryAuthenticator.canDeal(userName)) {
+            List<AuthenticationFailureSummary> failureSummaries = new ArrayList<>();
+            failureSummaries.add(AuthenticationFailureSummary.forFailureType(
+                    AuthenticationFailureType.ACCESS_DENIED,
+                    "Authenticator cannot handle user '" + userName + "'"));
+            return reportAuthenticationFailure(context, userName, remoteIp, null, failureSummaries);
+        }
         boolean debugEnabled = LOG.isDebugEnabled();
         long resolveStart = 0L;
         if (debugEnabled) {
@@ -200,14 +214,27 @@ public class AuthenticatorManager {
         List<AuthenticationFailureSummary> failureSummaries = new ArrayList<>();
         addFailureSummary(failureSummaries, primaryResponse);
 
-        AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
-                channel, serializer, authPacket, handshakePacket, request);
-        if (chainResponse != null && chainResponse.isSuccess()) {
-            return finishSuccessfulAuthentication(context, remoteIp, chainResponse, true);
+        if (!authenticationMethodBound) {
+            AuthenticateResponse chainResponse = tryAuthenticationChainFallback(context, userName, remoteIp,
+                    channel, serializer, authPacket, handshakePacket, request);
+            if (chainResponse != null && chainResponse.isSuccess()) {
+                return finishSuccessfulAuthentication(context, remoteIp, chainResponse, true);
+            }
+            addFailureSummary(failureSummaries, chainResponse);
         }
-        addFailureSummary(failureSummaries, chainResponse);
 
         return reportAuthenticationFailure(context, userName, remoteIp, request.getPassword(), failureSummaries);
+    }
+
+    Authenticator chooseAuthenticator(String userName, String remoteIp, String authenticationIntegrationName,
+            boolean passwordAuthenticationUser) {
+        if (authenticationIntegrationName != null) {
+            return getAuthenticationIntegrationAuthenticator(authenticationIntegrationName);
+        }
+        if (passwordAuthenticationUser) {
+            return defaultAuthenticator;
+        }
+        return chooseAuthenticator(userName, remoteIp);
     }
 
     Authenticator chooseAuthenticator(String userName, String remoteIp) {
@@ -217,6 +244,11 @@ public class AuthenticatorManager {
 
     Authenticator getAuthenticationChainAuthenticator() {
         return new AuthenticationIntegrationAuthenticator(Config.authentication_chain, "authentication_chain");
+    }
+
+    Authenticator getAuthenticationIntegrationAuthenticator(String authenticationIntegrationName) {
+        return new AuthenticationIntegrationAuthenticator(authenticationIntegrationName,
+                "authentication integration bound to user");
     }
 
     private void applyAuthenticateResponse(ConnectContext context, String remoteIp, AuthenticateResponse response) {

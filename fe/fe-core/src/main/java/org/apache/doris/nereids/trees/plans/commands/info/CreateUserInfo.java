@@ -29,6 +29,7 @@ import org.apache.doris.common.ErrorReport;
 import org.apache.doris.common.FeNameFormat;
 import org.apache.doris.mysql.privilege.PrivPredicate;
 import org.apache.doris.mysql.privilege.Role;
+import org.apache.doris.mysql.privilege.User;
 import org.apache.doris.qe.ConnectContext;
 
 import com.google.common.base.Strings;
@@ -50,6 +51,8 @@ public class CreateUserInfo {
     private UserIdentity userIdent;
     private PassVar passVar;
     private String userId;
+    private User.AuthenticationMethod authenticationMethod;
+    private String authenticationIntegrationName;
 
     /**
      * CreateUserInfo
@@ -70,6 +73,12 @@ public class CreateUserInfo {
         this.passwordOptions = passwordOptions;
         this.comment = comment;
         this.tlsOptions = tlsOptions == null ? TlsOptions.notSpecified() : tlsOptions;
+        if (userDesc.hasAuthenticationIntegration()) {
+            this.authenticationMethod = User.AuthenticationMethod.INTEGRATION;
+            this.authenticationIntegrationName = userDesc.getAuthenticationIntegrationName();
+        } else if (userDesc.hasPassword()) {
+            this.authenticationMethod = User.AuthenticationMethod.PASSWORD;
+        }
 
         String uId = Env.getCurrentEnv().getAuth().getUserId(this.userIdent.getUser());
         LOG.debug("create user command userIdent {}, userName {}, userId {}",
@@ -103,6 +112,9 @@ public class CreateUserInfo {
 
         // convert plain password to hashed password
         passVar.analyze();
+        if (User.AuthenticationMethod.INTEGRATION.equals(authenticationMethod)) {
+            checkAuthenticationIntegrationExists(authenticationIntegrationName);
+        }
 
         if (role != null) {
             if (role.equalsIgnoreCase("SUPERUSER")) {
@@ -155,5 +167,21 @@ public class CreateUserInfo {
 
     public PassVar getPassVar() {
         return passVar;
+    }
+
+    public User.AuthenticationMethod getAuthenticationMethod() {
+        return authenticationMethod;
+    }
+
+    public String getAuthenticationIntegrationName() {
+        return authenticationIntegrationName;
+    }
+
+    private void checkAuthenticationIntegrationExists(String authenticationIntegrationName) throws AnalysisException {
+        if (Env.getCurrentEnv().getAuthenticationIntegrationMgr()
+                .getAuthenticationIntegration(authenticationIntegrationName) == null) {
+            throw new AnalysisException("Authentication integration " + authenticationIntegrationName
+                    + " does not exist");
+        }
     }
 }
