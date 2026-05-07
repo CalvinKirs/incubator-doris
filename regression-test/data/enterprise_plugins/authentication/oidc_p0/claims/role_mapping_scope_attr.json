@@ -1,0 +1,16 @@
+{
+  "iss": "http://oidc-fixture.enterprise-plugins.svc",
+  "sub": "oidc-user-006",
+  "preferred_username": "scope_reader",
+  "aud": [
+    "doris-prod"
+  ],
+  "scp": [
+    "doris.query",
+    "doris.admin"
+  ],
+  "azp": "agent-gateway",
+  "doris_groups": [
+    "analyst"
+  ]
+}
