@@ -1,0 +1,13 @@
+{
+  "iss": "http://oidc-fixture.enterprise-plugins.svc",
+  "sub": "oidc-user-003",
+  "preferred_username": "alice",
+  "aud": [
+    "doris-prod"
+  ],
+  "scope": "openid profile doris.query",
+  "azp": "unexpected-client",
+  "doris_groups": [
+    "analyst"
+  ]
+}

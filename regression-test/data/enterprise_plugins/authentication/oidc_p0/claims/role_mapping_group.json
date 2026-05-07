@@ -1,0 +1,14 @@
+{
+  "iss": "http://oidc-fixture.enterprise-plugins.svc",
+  "sub": "oidc-user-005",
+  "preferred_username": "finance_reader",
+  "aud": [
+    "doris-prod"
+  ],
+  "scope": "openid profile doris.query",
+  "azp": "grafana-doris-plugin",
+  "doris_groups": [
+    "doris_finance_reader",
+    "analyst"
+  ]
+}
