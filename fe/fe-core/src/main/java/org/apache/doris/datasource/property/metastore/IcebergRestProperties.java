@@ -27,6 +27,7 @@ import org.apache.hadoop.conf.Configuration;
 import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.catalog.Catalog;
+import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.apache.logging.log4j.util.Strings;
 
@@ -62,14 +63,12 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
 
     @ConnectorProperty(names = {"iceberg.rest.session"},
             required = false,
-            supported = false,
             description = "The session type of the iceberg rest catalog service,"
                     + "optional: (none, user), default: none.")
     private String icebergRestSession = "none";
 
     @ConnectorProperty(names = {"iceberg.rest.session-timeout"},
             required = false,
-            supported = false,
             description = "The session timeout of the iceberg rest catalog service.")
     private String icebergRestSessionTimeout = "0";
 
@@ -182,6 +181,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     public void initNormalizeAndCheckProps() {
         super.initNormalizeAndCheckProps();
         validateSecurityType();
+        validateSessionType();
         buildRules().validate();
         initIcebergRestCatalogProperties();
     }
@@ -199,6 +199,18 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         }
     }
 
+    private void validateSessionType() {
+        try {
+            Session.valueOf(icebergRestSession.toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("Invalid session type: " + icebergRestSession
+                    + ". Supported values are: none, user");
+        }
+        if (isIcebergRestUserSessionEnabled() && !"oauth2".equalsIgnoreCase(icebergRestSecurityType)) {
+            throw new IllegalArgumentException("iceberg.rest.session=user requires oauth2 security type");
+        }
+    }
+
     private ParamRules buildRules() {
         ParamRules rules = new ParamRules()
                 // OAuth2 requires either credential or token, but not both
@@ -213,7 +225,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if ("oauth2".equalsIgnoreCase(icebergRestSecurityType)) {
             boolean hasCredential = Strings.isNotBlank(icebergRestOauth2Credential);
             boolean hasToken = Strings.isNotBlank(icebergRestOauth2Token);
-            if (!hasCredential && !hasToken) {
+            if (!hasCredential && !hasToken && !isIcebergRestUserSessionEnabled()) {
                 throw new IllegalArgumentException("OAuth2 requires either credential or token");
             }
         }
@@ -267,6 +279,11 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         if (Strings.isNotBlank(icebergRestSocketTimeoutMs)) {
             icebergRestCatalogProperties.put("rest.client.socket-timeout-ms", icebergRestSocketTimeoutMs);
         }
+
+        if (isIcebergRestUserSessionEnabled() && Strings.isNotBlank(icebergRestSessionTimeout)
+                && Long.parseLong(icebergRestSessionTimeout) > 0) {
+            icebergRestCatalogProperties.put(CatalogProperties.AUTH_SESSION_TIMEOUT_MS, icebergRestSessionTimeout);
+        }
     }
 
     private void addAuthenticationProperties() {
@@ -277,6 +294,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
     }
 
     private void addOAuth2Properties() {
+        icebergRestCatalogProperties.put(AuthProperties.AUTH_TYPE, AuthProperties.AUTH_TYPE_OAUTH2);
         if (Strings.isNotBlank(icebergRestOauth2Credential)) {
             // Client Credentials Flow
             icebergRestCatalogProperties.put(OAuth2Properties.CREDENTIAL, icebergRestOauth2Credential);
@@ -288,7 +306,7 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
             }
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN_REFRESH_ENABLED,
                     icebergRestOauth2TokenRefreshEnabled);
-        } else {
+        } else if (Strings.isNotBlank(icebergRestOauth2Token)) {
             // Pre-configured Token Flow
             icebergRestCatalogProperties.put(OAuth2Properties.TOKEN, icebergRestOauth2Token);
         }
@@ -317,8 +335,17 @@ public class IcebergRestProperties extends AbstractIcebergProperties {
         return Boolean.parseBoolean(icebergRestNestedNamespaceEnabled);
     }
 
+    public boolean isIcebergRestUserSessionEnabled() {
+        return Session.USER.name().equalsIgnoreCase(icebergRestSession);
+    }
+
     public enum Security {
         NONE,
         OAUTH2,
+    }
+
+    public enum Session {
+        NONE,
+        USER,
     }
 }

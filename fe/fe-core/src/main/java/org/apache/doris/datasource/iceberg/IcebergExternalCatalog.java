@@ -27,6 +27,7 @@ import org.apache.doris.datasource.InitCatalogLog;
 import org.apache.doris.datasource.SessionContext;
 import org.apache.doris.datasource.metacache.CacheSpec;
 import org.apache.doris.datasource.property.metastore.AbstractIcebergProperties;
+import org.apache.doris.datasource.property.metastore.IcebergRestProperties;
 import org.apache.doris.nereids.trees.plans.commands.info.AddPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.DropPartitionFieldOp;
 import org.apache.doris.nereids.trees.plans.commands.info.ReplacePartitionFieldOp;
@@ -158,17 +159,24 @@ public abstract class IcebergExternalCatalog extends ExternalCatalog {
     @Override
     public boolean tableExist(SessionContext ctx, String dbName, String tblName) {
         makeSureInitialized();
-        return metadataOps.tableExist(dbName, tblName);
+        return ((IcebergMetadataOps) metadataOps).tableExist(ctx, dbName, tblName);
     }
 
     @Override
     protected List<String> listTableNamesFromRemote(SessionContext ctx, String dbName) {
         // On the Doris side, the result of SHOW TABLES for Iceberg external tables includes both tables and views,
         // so the combined set of tables and views is used here.
-        List<String> tableNames = metadataOps.listTableNames(dbName);
-        List<String> viewNames = metadataOps.listViewNames(dbName);
+        IcebergMetadataOps ops = (IcebergMetadataOps) metadataOps;
+        List<String> tableNames = ops.listTableNames(ctx, dbName);
+        List<String> viewNames = ops.listViewNames(ctx, dbName);
         tableNames.addAll(viewNames);
         return tableNames;
+    }
+
+    public boolean isIcebergRestUserSessionEnabled() {
+        makeSureInitialized();
+        return msProperties instanceof IcebergRestProperties
+                && ((IcebergRestProperties) msProperties).isIcebergRestUserSessionEnabled();
     }
 
     @Override

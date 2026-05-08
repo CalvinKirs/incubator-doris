@@ -19,6 +19,7 @@ package org.apache.doris.mysql.authenticate;
 
 import org.apache.doris.analysis.UserIdentity;
 import org.apache.doris.authentication.Principal;
+import org.apache.doris.datasource.DelegatedCredential;
 
 import java.util.Collections;
 import java.util.LinkedHashSet;
@@ -33,6 +34,7 @@ public class AuthenticateResponse {
     private Principal principal;
     private Set<String> authenticatedRoles = Collections.emptySet();
     private AuthenticationFailureSummary failureSummary;
+    private DelegatedCredential delegatedCredential;
 
     public AuthenticateResponse(boolean success) {
         this(success, null, false, null, Collections.emptySet(), null);
@@ -113,6 +115,14 @@ public class AuthenticateResponse {
         this.failureSummary = failureSummary;
     }
 
+    public DelegatedCredential getDelegatedCredential() {
+        return delegatedCredential;
+    }
+
+    public void setDelegatedCredential(DelegatedCredential delegatedCredential) {
+        this.delegatedCredential = delegatedCredential;
+    }
+
     private static Set<String> immutableAuthenticatedRoles(Set<String> authenticatedRoles) {
         if (authenticatedRoles.isEmpty()) {
             return Collections.emptySet();
@@ -128,6 +138,7 @@ public class AuthenticateResponse {
                 + ", isTemp=" + isTemp
                 + ", principal=" + principal
                 + ", authenticatedRoles=" + authenticatedRoles
+                + ", delegatedCredential=" + delegatedCredential
                 + ", failureSummary=" + failureSummary
                 + '}';
     }

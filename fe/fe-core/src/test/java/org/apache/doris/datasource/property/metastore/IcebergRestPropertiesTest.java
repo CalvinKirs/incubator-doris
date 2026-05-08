@@ -26,6 +26,7 @@ import org.apache.iceberg.CatalogProperties;
 import org.apache.iceberg.CatalogUtil;
 import org.apache.iceberg.aws.AwsClientProperties;
 import org.apache.iceberg.aws.s3.S3FileIOProperties;
+import org.apache.iceberg.rest.auth.AuthProperties;
 import org.apache.iceberg.rest.auth.OAuth2Properties;
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -118,6 +119,37 @@ public class IcebergRestPropertiesTest {
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.OAUTH2_SERVER_URI));
         Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.SCOPE));
+    }
+
+    @Test
+    public void testOAuth2UserSessionFlow() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.security.type", "oauth2");
+        props.put("iceberg.rest.session", "user");
+        props.put("iceberg.rest.session-timeout", "60000");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        restProps.initNormalizeAndCheckProps();
+
+        Map<String, String> catalogProps = restProps.getIcebergRestCatalogProperties();
+        Assertions.assertTrue(restProps.isIcebergRestUserSessionEnabled());
+        Assertions.assertEquals(AuthProperties.AUTH_TYPE_OAUTH2, catalogProps.get(AuthProperties.AUTH_TYPE));
+        Assertions.assertEquals("60000", catalogProps.get(CatalogProperties.AUTH_SESSION_TIMEOUT_MS));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.TOKEN));
+        Assertions.assertFalse(catalogProps.containsKey(OAuth2Properties.CREDENTIAL));
+    }
+
+    @Test
+    public void testUserSessionRequiresOAuth2SecurityType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("iceberg.rest.uri", "http://localhost:8080");
+        props.put("iceberg.rest.session", "user");
+
+        IcebergRestProperties restProps = new IcebergRestProperties(props);
+        IllegalArgumentException exception = Assertions.assertThrows(
+                IllegalArgumentException.class, restProps::initNormalizeAndCheckProps);
+        Assertions.assertTrue(exception.getMessage().contains("iceberg.rest.session=user requires oauth2"));
     }
 
     @Test
