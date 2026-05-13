@@ -21,8 +21,10 @@ import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -57,6 +59,32 @@ public interface FileSystemProvider extends PluginFactory {
      */
     default FileSystemProperties bind(Map<String, String> properties) {
         return FileSystemProperties.of(properties);
+    }
+
+    /**
+     * StorageProperties-compatible storage type exposed by this provider.
+     *
+     * <p>This is intentionally separated from {@link #name()}: a custom provider may expose
+     * a unique factory identity such as "S3-CUSTOM" while still reusing the S3 storage
+     * property model by returning "S3" here.
+     */
+    default String storageType() {
+        return name();
+    }
+
+    /**
+     * Converts provider-bound filesystem properties to the key-value form consumed by
+     * StorageProperties.
+     *
+     * <p>Provider implementations own this conversion. FE core must not infer a concrete
+     * StorageProperties implementation from the provider name.
+     */
+    default Map<String, String> toStoragePropertiesKv(
+            Map<String, String> rawProperties, FileSystemProperties fileSystemProperties) {
+        Map<String, String> result = new HashMap<>(rawProperties);
+        result.putAll(fileSystemProperties.toFileSystemKv());
+        result.put(FileSystemPropertyKeys.STORAGE_TYPE, storageType());
+        return result;
     }
 
     /**

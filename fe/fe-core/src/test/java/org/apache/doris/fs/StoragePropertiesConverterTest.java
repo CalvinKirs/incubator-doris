@@ -18,6 +18,7 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
@@ -39,7 +40,7 @@ class StoragePropertiesConverterTest {
         StorageProperties storageProperties = StorageProperties.createPrimary(props);
         Map<String, String> fileSystemProperties = StoragePropertiesConverter.toMap(storageProperties);
 
-        Assertions.assertEquals("COS", fileSystemProperties.get("_STORAGE_TYPE_"));
+        Assertions.assertEquals("COS", fileSystemProperties.get(FileSystemPropertyKeys.STORAGE_TYPE));
         Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com",
                 fileSystemProperties.get("AWS_ENDPOINT"));
     }

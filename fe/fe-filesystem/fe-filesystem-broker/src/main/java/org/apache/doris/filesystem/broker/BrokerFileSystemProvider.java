@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.broker;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -37,7 +38,7 @@ import java.util.Map;
  */
 public class BrokerFileSystemProvider implements FileSystemProvider {
 
-    static final String KEY_TYPE      = "_STORAGE_TYPE_";
+    static final String KEY_TYPE      = FileSystemPropertyKeys.STORAGE_TYPE;
     static final String KEY_HOST      = "BROKER_HOST";
     static final String KEY_PORT      = "BROKER_PORT";
     static final String KEY_CLIENT_ID = "BROKER_CLIENT_ID";

@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -36,7 +37,7 @@ public class HdfsFileSystemProvider implements FileSystemProvider {
     public boolean supports(Map<String, String> properties) {
         // Authoritative match: StoragePropertiesConverter always sets this key for HDFS storage,
         // including Hive catalog properties that may not carry explicit HDFS connection keys.
-        if ("HDFS".equals(properties.get("_STORAGE_TYPE_"))) {
+        if ("HDFS".equals(properties.get(FileSystemPropertyKeys.STORAGE_TYPE))) {
             return true;
         }
         String uri = properties.get("HDFS_URI");

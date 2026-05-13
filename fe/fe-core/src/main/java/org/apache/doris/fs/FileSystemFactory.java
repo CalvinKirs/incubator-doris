@@ -27,6 +27,7 @@ import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.service.FrontendOptions;
 
@@ -225,7 +226,7 @@ public final class FileSystemFactory {
     public static org.apache.doris.filesystem.FileSystem getBrokerFileSystem(
             String host, int port, String clientId, Map<String, String> brokerParams) throws IOException {
         Map<String, String> props = new HashMap<>(brokerParams);
-        props.put("_STORAGE_TYPE_", "BROKER");
+        props.put(FileSystemPropertyKeys.STORAGE_TYPE, "BROKER");
         props.put("BROKER_HOST", host);
         props.put("BROKER_PORT", String.valueOf(port));
         props.put("BROKER_CLIENT_ID", clientId);

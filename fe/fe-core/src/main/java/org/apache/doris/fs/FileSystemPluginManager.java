@@ -24,6 +24,7 @@ import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.apache.logging.log4j.LogManager;
@@ -131,7 +132,8 @@ public class FileSystemPluginManager {
             }
         }
         throw new IOException("No FileSystemProvider supports the given properties: "
-                + properties.get("_STORAGE_TYPE_") + ". Registered providers: " + providerNames());
+                + properties.get(FileSystemPropertyKeys.STORAGE_TYPE)
+                + ". Registered providers: " + providerNames());
     }
 
     /**

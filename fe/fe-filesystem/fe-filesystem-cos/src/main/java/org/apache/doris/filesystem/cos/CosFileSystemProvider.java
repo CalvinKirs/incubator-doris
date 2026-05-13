@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.cos;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
@@ -38,9 +39,6 @@ import java.util.Map;
 public class CosFileSystemProvider implements FileSystemProvider {
 
     private static final String STORAGE_TYPE = "COS";
-    private static final String KEY_STORAGE_TYPE = "_STORAGE_TYPE_";
-    private static final String KEY_FS_PROVIDER = "fs.provider";
-    private static final String KEY_LEGACY_PROVIDER = "provider";
 
     @Override
     public boolean supports(Map<String, String> properties) {
@@ -80,14 +78,6 @@ public class CosFileSystemProvider implements FileSystemProvider {
     }
 
     private static String explicitStorageType(Map<String, String> properties) {
-        String storageType = properties.get(KEY_STORAGE_TYPE);
-        if (storageType != null) {
-            return storageType;
-        }
-        storageType = properties.get(KEY_FS_PROVIDER);
-        if (storageType != null) {
-            return storageType;
-        }
-        return properties.get(KEY_LEGACY_PROVIDER);
+        return FileSystemPropertyKeys.explicitProvider(properties);
     }
 }

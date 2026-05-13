@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.foundation.property.ConnectorPropertiesUtils;
 
 import java.util.Collections;
@@ -25,8 +26,6 @@ import java.util.HashMap;
 import java.util.Map;
 
 public abstract class AbstractS3CompatibleFileSystemProperties implements FileSystemProperties {
-
-    private static final String STORAGE_TYPE_KEY = "_STORAGE_TYPE_";
 
     private final String storageType;
     private final Map<String, String> properties;
@@ -98,7 +97,7 @@ public abstract class AbstractS3CompatibleFileSystemProperties implements FileSy
             result.putIfAbsent(S3ObjStorage.PROP_PATH_STYLE, "false");
         }
         if (hasText(storageType)) {
-            result.put(STORAGE_TYPE_KEY, storageType);
+            result.put(FileSystemPropertyKeys.STORAGE_TYPE, storageType);
         }
         return result;
     }

@@ -22,6 +22,7 @@ import org.apache.doris.datasource.property.storage.AzureProperties;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 
 import org.apache.commons.lang3.StringUtils;
 
@@ -57,7 +58,7 @@ public final class StoragePropertiesConverter {
             map.put("AWS_ENDPOINT", s3Props.getEndpoint());
             map.put("AWS_ACCESS_KEY", s3Props.getAccessKey());
             map.put("AWS_REGION", s3Props.getRegion());
-            map.put("_STORAGE_TYPE_", s3Props.getType().name());
+            map.put(FileSystemPropertyKeys.STORAGE_TYPE, s3Props.getType().name());
             // Bucket is required by cloud-specific operations (listObjectsWithPrefix, getPresignedUrl, etc.)
             if (StringUtils.isNotBlank(s3Props.getBucket())) {
                 map.put("AWS_BUCKET", s3Props.getBucket());
@@ -80,11 +81,11 @@ public final class StoragePropertiesConverter {
             if (StringUtils.isNotBlank(azureProps.getEndpoint())) {
                 map.put("AZURE_ENDPOINT", azureProps.getEndpoint());
             }
-            map.put("_STORAGE_TYPE_", "AZURE");
+            map.put(FileSystemPropertyKeys.STORAGE_TYPE, "AZURE");
         } else if (props instanceof HdfsCompatibleProperties) {
-            map.put("_STORAGE_TYPE_", "HDFS");
+            map.put(FileSystemPropertyKeys.STORAGE_TYPE, "HDFS");
         } else if (props instanceof BrokerProperties) {
-            map.put("_STORAGE_TYPE_", "BROKER");
+            map.put(FileSystemPropertyKeys.STORAGE_TYPE, "BROKER");
         }
 
         return map;

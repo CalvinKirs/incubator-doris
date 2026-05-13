@@ -19,6 +19,7 @@ package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -38,9 +39,6 @@ import java.util.Set;
  */
 public class S3FileSystemProvider implements FileSystemProvider {
 
-    private static final String KEY_STORAGE_TYPE = "_STORAGE_TYPE_";
-    private static final String KEY_FS_PROVIDER = "fs.provider";
-    private static final String KEY_LEGACY_PROVIDER = "provider";
     private static final Set<String> S3_COMPATIBLE_STORAGE_TYPES =
             new HashSet<>(Arrays.asList("S3", "MINIO", "GCS"));
 
@@ -92,14 +90,6 @@ public class S3FileSystemProvider implements FileSystemProvider {
     }
 
     private static String explicitStorageType(Map<String, String> properties) {
-        String storageType = properties.get(KEY_STORAGE_TYPE);
-        if (storageType != null) {
-            return storageType;
-        }
-        storageType = properties.get(KEY_FS_PROVIDER);
-        if (storageType != null) {
-            return storageType;
-        }
-        return properties.get(KEY_LEGACY_PROVIDER);
+        return FileSystemPropertyKeys.explicitProvider(properties);
     }
 }

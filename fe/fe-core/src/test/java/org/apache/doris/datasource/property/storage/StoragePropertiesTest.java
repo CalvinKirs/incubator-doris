@@ -20,6 +20,7 @@ package org.apache.doris.datasource.property.storage;
 import org.apache.doris.common.UserException;
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.FileSystemPluginManager;
@@ -239,13 +240,13 @@ public class StoragePropertiesTest {
         FileSystemFactory.initPluginManager(manager);
         try {
             Map<String, String> props = new HashMap<>();
-            props.put(StorageProperties.FS_PROVIDER, "s3");
+            props.put(StorageProperties.FS_PROVIDER, "S3-CUSTOM");
             props.put("custom.endpoint", "https://custom.example.com");
 
             StorageProperties primary = StorageProperties.createPrimary(props);
 
             Assertions.assertInstanceOf(S3Properties.class, primary);
-            Assertions.assertEquals("S3", primary.getFileSystemProviderName());
+            Assertions.assertEquals("S3-CUSTOM", primary.getFileSystemProviderName());
             Assertions.assertEquals("https://custom.example.com",
                     primary.getFileSystemProperties().toFileSystemKv().get("s3.endpoint"));
             Assertions.assertEquals("https://custom.example.com", ((S3Properties) primary).getEndpoint());
@@ -425,7 +426,7 @@ public class StoragePropertiesTest {
     private static class CanonicalS3Provider implements FileSystemProvider {
         @Override
         public boolean supports(Map<String, String> properties) {
-            return "s3".equalsIgnoreCase(properties.get(StorageProperties.FS_PROVIDER))
+            return "S3-CUSTOM".equalsIgnoreCase(properties.get(StorageProperties.FS_PROVIDER))
                     || "true".equalsIgnoreCase(properties.get("custom.s3"));
         }
 
@@ -445,6 +446,11 @@ public class StoragePropertiesTest {
 
         @Override
         public String name() {
+            return "S3-CUSTOM";
+        }
+
+        @Override
+        public String storageType() {
             return "S3";
         }
     }
@@ -458,7 +464,7 @@ public class StoragePropertiesTest {
         @Override
         public FileSystemProperties bind(Map<String, String> properties) {
             Map<String, String> kv = new HashMap<>();
-            kv.put("_STORAGE_TYPE_", "HDFS");
+            kv.put(FileSystemPropertyKeys.STORAGE_TYPE, "HDFS");
             kv.put("fs.defaultFS", "hdfs://nameservice1");
             return FileSystemProperties.of(kv);
         }
