@@ -120,8 +120,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * alternate key formats (e.g. "s3.access_key", "access_key") are treated
      * identically to callers that already use canonical keys like "AWS_ACCESS_KEY".
      *
-     * <p>Only adds a canonical entry when the canonical key is absent; explicit
-     * canonical values are never overridden.
+     * <p>The canonical value follows {@link S3FileSystemProperties}' legacy
+     * alias order, so an earlier alias can override the AWS_* key.
      */
     static Map<String, String> normalizeProperties(Map<String, String> props) {
         return S3FileSystemProperties.normalize(props);

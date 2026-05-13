@@ -26,45 +26,45 @@ public final class OssFileSystemProperties extends AbstractS3CompatibleFileSyste
 
     private static final String STORAGE_TYPE = "OSS";
 
-    @ConnectorProperty(names = {"AWS_ENDPOINT", "OSS_ENDPOINT", "oss.endpoint", "fs.oss.endpoint",
-            "dlf.endpoint", "dlf.catalog.endpoint", "s3.endpoint", "endpoint", "ENDPOINT"},
+    @ConnectorProperty(names = {"oss.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "dlf.endpoint", "dlf.catalog.endpoint", "fs.oss.endpoint", "OSS_ENDPOINT"},
             required = false)
     private String endpoint;
 
-    @ConnectorProperty(names = {"AWS_REGION", "OSS_REGION", "oss.region", "fs.oss.region", "dlf.region",
-            "s3.region", "region", "REGION", "iceberg.rest.signing-region"},
+    @ConnectorProperty(names = {"oss.region", "s3.region", "AWS_REGION", "region", "REGION", "dlf.region",
+            "iceberg.rest.signing-region", "OSS_REGION", "fs.oss.region"},
             required = false, isRegionField = true)
     private String region;
 
-    @ConnectorProperty(names = {"AWS_ACCESS_KEY", "OSS_ACCESS_KEY", "oss.access_key", "oss.access-key-id",
-            "fs.oss.accessKeyId", "dlf.access_key", "dlf.catalog.accessKeyId", "s3.access_key",
-            "s3.access-key-id", "access_key", "ACCESS_KEY"}, required = false, sensitive = true)
+    @ConnectorProperty(names = {"oss.access_key", "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY",
+            "access_key", "ACCESS_KEY", "dlf.access_key", "dlf.catalog.accessKeyId", "fs.oss.accessKeyId",
+            "OSS_ACCESS_KEY", "oss.access-key-id"}, required = false, sensitive = true)
     private String accessKey;
 
-    @ConnectorProperty(names = {"AWS_SECRET_KEY", "OSS_SECRET_KEY", "oss.secret_key", "oss.secret-access-key",
-            "fs.oss.accessKeySecret", "dlf.secret_key", "dlf.catalog.secret_key", "s3.secret_key",
-            "s3.secret-access-key", "secret_key", "SECRET_KEY"}, required = false, sensitive = true)
+    @ConnectorProperty(names = {"oss.secret_key", "s3.secret_key", "s3.secret-access-key", "AWS_SECRET_KEY",
+            "secret_key", "SECRET_KEY", "dlf.secret_key", "dlf.catalog.secret_key", "fs.oss.accessKeySecret",
+            "OSS_SECRET_KEY", "oss.secret-access-key"}, required = false, sensitive = true)
     private String secretKey;
 
-    @ConnectorProperty(names = {"AWS_TOKEN", "OSS_TOKEN", "oss.session_token", "oss.session-token",
-            "fs.oss.securityToken", "s3.session_token", "s3.session-token", "session_token"},
+    @ConnectorProperty(names = {"oss.session_token", "s3.session_token", "s3.session-token", "session_token",
+            "fs.oss.securityToken", "AWS_TOKEN", "OSS_TOKEN", "oss.session-token"},
             required = false, sensitive = true)
     private String token;
 
-    @ConnectorProperty(names = {"AWS_BUCKET", "OSS_BUCKET", "oss.bucket", "s3.bucket", "bucket"},
+    @ConnectorProperty(names = {"s3.bucket", "AWS_BUCKET", "OSS_BUCKET", "oss.bucket", "bucket"},
             required = false)
     private String bucket;
 
-    @ConnectorProperty(names = {"AWS_ROLE_ARN", "OSS_ROLE_ARN", "oss.role_arn", "s3.role_arn",
-            "sts.role_arn", "glue.role_arn"}, required = false)
+    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn", "OSS_ROLE_ARN",
+            "oss.role_arn", "sts.role_arn"}, required = false)
     private String roleArn;
 
-    @ConnectorProperty(names = {"AWS_EXTERNAL_ID", "OSS_EXTERNAL_ID", "oss.external_id", "s3.external_id",
-            "sts.external_id", "glue.external_id"}, required = false)
+    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id", "OSS_EXTERNAL_ID",
+            "oss.external_id", "sts.external_id"}, required = false)
     private String externalId;
 
-    @ConnectorProperty(names = {"use_path_style", "oss.use_path_style", "oss.path-style-access",
-            "s3.use_path_style", "s3.path-style-access"}, required = false)
+    @ConnectorProperty(names = {"oss.use_path_style", "use_path_style", "s3.path-style-access",
+            "oss.path-style-access", "s3.use_path_style"}, required = false)
     private String pathStyle;
 
     private OssFileSystemProperties(Map<String, String> rawProperties) {

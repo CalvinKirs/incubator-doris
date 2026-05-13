@@ -18,10 +18,13 @@
 package org.apache.doris.filesystem.cos;
 
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -90,6 +93,41 @@ class CosFileSystemProviderTest {
     }
 
     @Test
+    void bind_keepsLegacyAliasPriorityBeforeNewAliases() {
+        Map<String, String> props = new HashMap<>();
+        props.put("cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com");
+        props.put("AWS_ENDPOINT", "https://custom.endpoint");
+        props.put("cos.access_key", "cos-ak");
+        props.put("AWS_ACCESS_KEY", "aws-ak");
+        props.put("cos.secret_key", "cos-sk");
+        props.put("AWS_SECRET_KEY", "aws-sk");
+        props.put("cos.region", "ap-guangzhou");
+        props.put("AWS_REGION", "us-east-1");
+
+        Map<String, String> normalized = provider.bind(props).toFileSystemKv();
+
+        Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com", normalized.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("cos-ak", normalized.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("cos-sk", normalized.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("ap-guangzhou", normalized.get("AWS_REGION"));
+    }
+
+    @Test
+    void connectorPropertyAliasOrder_keepsLegacyPrefix() throws Exception {
+        assertAliasPrefix("endpoint", "cos.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT");
+        assertAliasPrefix("region", "cos.region", "s3.region", "AWS_REGION", "region", "REGION");
+        assertAliasPrefix("accessKey", "cos.access_key", "s3.access_key", "s3.access-key-id",
+                "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY");
+        assertAliasPrefix("secretKey", "cos.secret_key", "s3.secret_key", "s3.secret-access-key",
+                "AWS_SECRET_KEY", "secret_key", "SECRET_KEY");
+        assertAliasPrefix("token", "cos.session_token", "s3.session_token", "s3.session-token", "session_token");
+        assertAliasPrefix("bucket", "s3.bucket", "AWS_BUCKET");
+        assertAliasPrefix("roleArn", "s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn");
+        assertAliasPrefix("externalId", "s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id");
+        assertAliasPrefix("pathStyle", "cos.use_path_style", "use_path_style", "s3.path-style-access");
+    }
+
+    @Test
     void validate_acceptsDefaultCredentialChainWithoutStaticCredentialOrRole() {
         Map<String, String> props = new HashMap<>();
         props.put("COS_ENDPOINT", "https://cos.ap-guangzhou.myqcloud.com");
@@ -98,5 +136,11 @@ class CosFileSystemProviderTest {
         FileSystemProperties fileSystemProperties = provider.bind(props);
 
         Assertions.assertDoesNotThrow(fileSystemProperties::validate);
+    }
+
+    private static void assertAliasPrefix(String fieldName, String... expectedPrefix) throws Exception {
+        Field field = CosFileSystemProperties.class.getDeclaredField(fieldName);
+        ConnectorProperty property = field.getAnnotation(ConnectorProperty.class);
+        Assertions.assertArrayEquals(expectedPrefix, Arrays.copyOf(property.names(), expectedPrefix.length));
     }
 }

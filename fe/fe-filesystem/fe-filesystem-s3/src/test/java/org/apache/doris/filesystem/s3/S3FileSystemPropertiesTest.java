@@ -18,10 +18,13 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -47,6 +50,47 @@ class S3FileSystemPropertiesTest {
         Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", kv.get(S3ObjStorage.PROP_ENDPOINT));
         Assertions.assertEquals("us-west-2", kv.get(S3ObjStorage.PROP_REGION));
         Assertions.assertEquals("token", kv.get(S3ObjStorage.PROP_TOKEN));
+    }
+
+    @Test
+    void bind_keepsLegacyAliasPriority() {
+        Map<String, String> raw = new HashMap<>();
+        raw.put("s3.endpoint", "https://s3.us-west-2.amazonaws.com");
+        raw.put("AWS_ENDPOINT", "https://custom.endpoint");
+        raw.put("s3.region", "us-west-2");
+        raw.put("AWS_REGION", "us-east-1");
+        raw.put("s3.access_key", "s3-ak");
+        raw.put("AWS_ACCESS_KEY", "aws-ak");
+        raw.put("s3.secret_key", "s3-sk");
+        raw.put("AWS_SECRET_KEY", "aws-sk");
+
+        Map<String, String> kv = provider.bind(raw).toFileSystemKv();
+
+        Assertions.assertEquals("https://s3.us-west-2.amazonaws.com", kv.get(S3ObjStorage.PROP_ENDPOINT));
+        Assertions.assertEquals("us-west-2", kv.get(S3ObjStorage.PROP_REGION));
+        Assertions.assertEquals("s3-ak", kv.get(S3ObjStorage.PROP_ACCESS_KEY));
+        Assertions.assertEquals("s3-sk", kv.get(S3ObjStorage.PROP_SECRET_KEY));
+    }
+
+    @Test
+    void connectorPropertyAliasOrder_keepsLegacyPrefix() throws Exception {
+        assertAliasPrefix("endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+                "aws.endpoint", "glue.endpoint", "aws.glue.endpoint");
+        assertAliasPrefix("region", "s3.region", "AWS_REGION", "region", "REGION", "aws.region",
+                "glue.region", "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region",
+                "client.region");
+        assertAliasPrefix("accessKey", "s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
+                "glue.access_key", "aws.glue.access-key", "client.credentials-provider.glue.access_key",
+                "iceberg.rest.access-key-id", "s3.access-key-id");
+        assertAliasPrefix("secretKey", "s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
+                "glue.secret_key", "aws.glue.secret-key", "client.credentials-provider.glue.secret_key",
+                "iceberg.rest.secret-access-key", "s3.secret-access-key");
+        assertAliasPrefix("token", "s3.session_token", "session_token", "s3.session-token",
+                "iceberg.rest.session-token");
+        assertAliasPrefix("bucket", "s3.bucket", "AWS_BUCKET");
+        assertAliasPrefix("roleArn", "s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn");
+        assertAliasPrefix("externalId", "s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id");
+        assertAliasPrefix("pathStyle", "use_path_style", "s3.path-style-access");
     }
 
     @Test
@@ -113,5 +157,11 @@ class S3FileSystemPropertiesTest {
         FileSystemProperties properties = provider.bind(raw);
 
         Assertions.assertThrows(IllegalArgumentException.class, properties::validate);
+    }
+
+    private static void assertAliasPrefix(String fieldName, String... expectedPrefix) throws Exception {
+        Field field = S3FileSystemProperties.class.getDeclaredField(fieldName);
+        ConnectorProperty property = field.getAnnotation(ConnectorProperty.class);
+        Assertions.assertArrayEquals(expectedPrefix, Arrays.copyOf(property.names(), expectedPrefix.length));
     }
 }

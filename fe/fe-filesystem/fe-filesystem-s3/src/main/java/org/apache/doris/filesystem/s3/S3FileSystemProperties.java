@@ -23,41 +23,41 @@ import java.util.Map;
 
 public final class S3FileSystemProperties extends AbstractS3CompatibleFileSystemProperties {
 
-    @ConnectorProperty(names = {"AWS_ENDPOINT", "s3.endpoint", "endpoint", "ENDPOINT", "aws.endpoint",
+    @ConnectorProperty(names = {"s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT", "aws.endpoint",
             "glue.endpoint", "aws.glue.endpoint"}, required = false)
     private String endpoint;
 
-    @ConnectorProperty(names = {"AWS_REGION", "s3.region", "region", "REGION", "aws.region", "glue.region",
+    @ConnectorProperty(names = {"s3.region", "AWS_REGION", "region", "REGION", "aws.region", "glue.region",
             "aws.glue.region", "iceberg.rest.signing-region", "rest.signing-region", "client.region"},
             required = false, isRegionField = true)
     private String region;
 
-    @ConnectorProperty(names = {"AWS_ACCESS_KEY", "s3.access_key", "s3.access-key-id", "access_key", "ACCESS_KEY",
+    @ConnectorProperty(names = {"s3.access_key", "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY",
             "glue.access_key", "aws.glue.access-key", "client.credentials-provider.glue.access_key",
-            "iceberg.rest.access-key-id"}, required = false, sensitive = true)
+            "iceberg.rest.access-key-id", "s3.access-key-id"}, required = false, sensitive = true)
     private String accessKey;
 
-    @ConnectorProperty(names = {"AWS_SECRET_KEY", "s3.secret_key", "s3.secret-access-key", "secret_key",
-            "SECRET_KEY", "glue.secret_key", "aws.glue.secret-key", "client.credentials-provider.glue.secret_key",
-            "iceberg.rest.secret-access-key"}, required = false, sensitive = true)
+    @ConnectorProperty(names = {"s3.secret_key", "AWS_SECRET_KEY", "secret_key", "SECRET_KEY",
+            "glue.secret_key", "aws.glue.secret-key", "client.credentials-provider.glue.secret_key",
+            "iceberg.rest.secret-access-key", "s3.secret-access-key"}, required = false, sensitive = true)
     private String secretKey;
 
-    @ConnectorProperty(names = {"AWS_TOKEN", "s3.session_token", "session_token", "s3.session-token",
-            "iceberg.rest.session-token"}, required = false, sensitive = true)
+    @ConnectorProperty(names = {"s3.session_token", "session_token", "s3.session-token",
+            "iceberg.rest.session-token", "AWS_TOKEN"}, required = false, sensitive = true)
     private String token;
 
-    @ConnectorProperty(names = {"AWS_BUCKET", "s3.bucket", "bucket"}, required = false)
+    @ConnectorProperty(names = {"s3.bucket", "AWS_BUCKET", "bucket"}, required = false)
     private String bucket;
 
-    @ConnectorProperty(names = {"AWS_ROLE_ARN", "s3.role_arn", "sts.role_arn", "glue.role_arn"},
+    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn", "sts.role_arn"},
             required = false)
     private String roleArn;
 
-    @ConnectorProperty(names = {"AWS_EXTERNAL_ID", "s3.external_id", "sts.external_id", "glue.external_id"},
+    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id", "sts.external_id"},
             required = false)
     private String externalId;
 
-    @ConnectorProperty(names = {"use_path_style", "s3.use_path_style", "s3.path-style-access"},
+    @ConnectorProperty(names = {"use_path_style", "s3.path-style-access", "s3.use_path_style"},
             required = false)
     private String pathStyle;
 

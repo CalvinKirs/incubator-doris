@@ -18,10 +18,13 @@
 package org.apache.doris.filesystem.obs;
 
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.foundation.property.ConnectorProperty;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
+import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -92,6 +95,41 @@ class ObsFileSystemProviderTest {
     }
 
     @Test
+    void bind_keepsLegacyAliasPriorityBeforeNewAliases() {
+        Map<String, String> props = new HashMap<>();
+        props.put("obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com");
+        props.put("AWS_ENDPOINT", "https://custom.endpoint");
+        props.put("obs.access_key", "obs-ak");
+        props.put("AWS_ACCESS_KEY", "aws-ak");
+        props.put("obs.secret_key", "obs-sk");
+        props.put("AWS_SECRET_KEY", "aws-sk");
+        props.put("obs.region", "cn-north-4");
+        props.put("AWS_REGION", "us-east-1");
+
+        Map<String, String> normalized = provider.bind(props).toFileSystemKv();
+
+        Assertions.assertEquals("https://obs.cn-north-4.myhuaweicloud.com", normalized.get("AWS_ENDPOINT"));
+        Assertions.assertEquals("obs-ak", normalized.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("obs-sk", normalized.get("AWS_SECRET_KEY"));
+        Assertions.assertEquals("cn-north-4", normalized.get("AWS_REGION"));
+    }
+
+    @Test
+    void connectorPropertyAliasOrder_keepsLegacyPrefix() throws Exception {
+        assertAliasPrefix("endpoint", "obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT");
+        assertAliasPrefix("region", "obs.region", "s3.region", "AWS_REGION", "region", "REGION");
+        assertAliasPrefix("accessKey", "obs.access_key", "s3.access_key", "s3.access-key-id",
+                "AWS_ACCESS_KEY", "access_key", "ACCESS_KEY");
+        assertAliasPrefix("secretKey", "obs.secret_key", "s3.secret_key", "s3.secret-access-key",
+                "AWS_SECRET_KEY", "secret_key", "SECRET_KEY");
+        assertAliasPrefix("token", "obs.session_token", "s3.session_token", "s3.session-token", "session_token");
+        assertAliasPrefix("bucket", "s3.bucket", "AWS_BUCKET");
+        assertAliasPrefix("roleArn", "s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn");
+        assertAliasPrefix("externalId", "s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id");
+        assertAliasPrefix("pathStyle", "obs.use_path_style", "use_path_style", "s3.path-style-access");
+    }
+
+    @Test
     void validate_acceptsDefaultCredentialChainWithoutStaticCredentialOrRole() {
         Map<String, String> props = new HashMap<>();
         props.put("OBS_ENDPOINT", "https://obs.cn-north-4.myhuaweicloud.com");
@@ -100,5 +138,11 @@ class ObsFileSystemProviderTest {
         FileSystemProperties fileSystemProperties = provider.bind(props);
 
         Assertions.assertDoesNotThrow(fileSystemProperties::validate);
+    }
+
+    private static void assertAliasPrefix(String fieldName, String... expectedPrefix) throws Exception {
+        Field field = ObsFileSystemProperties.class.getDeclaredField(fieldName);
+        ConnectorProperty property = field.getAnnotation(ConnectorProperty.class);
+        Assertions.assertArrayEquals(expectedPrefix, Arrays.copyOf(property.names(), expectedPrefix.length));
     }
 }

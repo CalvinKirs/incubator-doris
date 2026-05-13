@@ -103,15 +103,15 @@ class S3ObjStorageTest {
     }
 
     @Test
-    void normalizeProperties_canonicalKeyTakesPrecedenceOverAlias() {
+    void normalizeProperties_legacyAliasTakesPrecedenceOverCanonicalKey() {
         Map<String, String> props = new HashMap<>();
-        props.put("AWS_ACCESS_KEY", "canonical");
-        props.put("s3.access_key", "alias-should-be-ignored");
+        props.put("AWS_ACCESS_KEY", "canonical-should-be-ignored");
+        props.put("s3.access_key", "alias");
         props.put("access_key", "bare-should-be-ignored");
 
         Map<String, String> result = S3ObjStorage.normalizeProperties(props);
 
-        Assertions.assertEquals("canonical", result.get("AWS_ACCESS_KEY"));
+        Assertions.assertEquals("alias", result.get("AWS_ACCESS_KEY"));
     }
 
     @Test

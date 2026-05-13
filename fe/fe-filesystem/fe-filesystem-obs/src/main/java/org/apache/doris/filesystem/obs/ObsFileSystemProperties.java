@@ -26,43 +26,43 @@ public final class ObsFileSystemProperties extends AbstractS3CompatibleFileSyste
 
     private static final String STORAGE_TYPE = "OBS";
 
-    @ConnectorProperty(names = {"AWS_ENDPOINT", "OBS_ENDPOINT", "obs.endpoint", "fs.obs.endpoint",
-            "s3.endpoint", "endpoint", "ENDPOINT"}, required = false)
+    @ConnectorProperty(names = {"obs.endpoint", "s3.endpoint", "AWS_ENDPOINT", "endpoint", "ENDPOINT",
+            "OBS_ENDPOINT", "fs.obs.endpoint"}, required = false)
     private String endpoint;
 
-    @ConnectorProperty(names = {"AWS_REGION", "OBS_REGION", "obs.region", "fs.obs.region",
-            "s3.region", "region", "REGION"}, required = false, isRegionField = true)
+    @ConnectorProperty(names = {"obs.region", "s3.region", "AWS_REGION", "region", "REGION",
+            "OBS_REGION", "fs.obs.region"}, required = false, isRegionField = true)
     private String region;
 
-    @ConnectorProperty(names = {"AWS_ACCESS_KEY", "OBS_ACCESS_KEY", "obs.access_key", "obs.access-key-id",
-            "fs.obs.accessKeyId", "s3.access_key", "s3.access-key-id", "access_key", "ACCESS_KEY"},
+    @ConnectorProperty(names = {"obs.access_key", "s3.access_key", "s3.access-key-id", "AWS_ACCESS_KEY",
+            "access_key", "ACCESS_KEY", "OBS_ACCESS_KEY", "obs.access-key-id", "fs.obs.accessKeyId"},
             required = false, sensitive = true)
     private String accessKey;
 
-    @ConnectorProperty(names = {"AWS_SECRET_KEY", "OBS_SECRET_KEY", "obs.secret_key", "obs.secret-access-key",
-            "fs.obs.accessKeySecret", "s3.secret_key", "s3.secret-access-key", "secret_key", "SECRET_KEY"},
+    @ConnectorProperty(names = {"obs.secret_key", "s3.secret_key", "s3.secret-access-key", "AWS_SECRET_KEY",
+            "secret_key", "SECRET_KEY", "OBS_SECRET_KEY", "obs.secret-access-key", "fs.obs.accessKeySecret"},
             required = false, sensitive = true)
     private String secretKey;
 
-    @ConnectorProperty(names = {"AWS_TOKEN", "OBS_TOKEN", "obs.session_token", "obs.session-token",
-            "fs.obs.securityToken", "s3.session_token", "s3.session-token", "session_token"},
+    @ConnectorProperty(names = {"obs.session_token", "s3.session_token", "s3.session-token", "session_token",
+            "AWS_TOKEN", "OBS_TOKEN", "obs.session-token", "fs.obs.securityToken"},
             required = false, sensitive = true)
     private String token;
 
-    @ConnectorProperty(names = {"AWS_BUCKET", "OBS_BUCKET", "obs.bucket", "s3.bucket", "bucket"},
+    @ConnectorProperty(names = {"s3.bucket", "AWS_BUCKET", "OBS_BUCKET", "obs.bucket", "bucket"},
             required = false)
     private String bucket;
 
-    @ConnectorProperty(names = {"AWS_ROLE_ARN", "OBS_ROLE_ARN", "obs.role_arn", "s3.role_arn",
-            "sts.role_arn", "glue.role_arn"}, required = false)
+    @ConnectorProperty(names = {"s3.role_arn", "AWS_ROLE_ARN", "glue.role_arn", "OBS_ROLE_ARN",
+            "obs.role_arn", "sts.role_arn"}, required = false)
     private String roleArn;
 
-    @ConnectorProperty(names = {"AWS_EXTERNAL_ID", "OBS_EXTERNAL_ID", "obs.external_id", "s3.external_id",
-            "sts.external_id", "glue.external_id"}, required = false)
+    @ConnectorProperty(names = {"s3.external_id", "AWS_EXTERNAL_ID", "glue.external_id", "OBS_EXTERNAL_ID",
+            "obs.external_id", "sts.external_id"}, required = false)
     private String externalId;
 
-    @ConnectorProperty(names = {"use_path_style", "obs.use_path_style", "obs.path-style-access",
-            "s3.use_path_style", "s3.path-style-access"}, required = false)
+    @ConnectorProperty(names = {"obs.use_path_style", "use_path_style", "s3.path-style-access",
+            "obs.path-style-access", "s3.use_path_style"}, required = false)
     private String pathStyle;
 
     private ObsFileSystemProperties(Map<String, String> rawProperties) {
