@@ -23,6 +23,7 @@ import org.apache.doris.extension.loader.LoadFailure;
 import org.apache.doris.extension.loader.LoadReport;
 import org.apache.doris.extension.loader.PluginHandle;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.apache.logging.log4j.LogManager;
@@ -124,11 +125,26 @@ public class FileSystemPluginManager {
     public FileSystem createFileSystem(Map<String, String> properties) throws IOException {
         for (FileSystemProvider provider : providers) {
             if (provider.supports(properties)) {
-                return provider.create(properties);
+                FileSystemProperties fileSystemProperties = provider.bind(properties);
+                fileSystemProperties.validate();
+                return provider.create(fileSystemProperties);
             }
         }
         throw new IOException("No FileSystemProvider supports the given properties: "
                 + properties.get("_STORAGE_TYPE_") + ". Registered providers: " + providerNames());
+    }
+
+    /**
+     * Returns providers that can bind the given properties, preserving provider priority.
+     */
+    public List<FileSystemProvider> resolveProviders(Map<String, String> properties) {
+        List<FileSystemProvider> result = new ArrayList<>();
+        for (FileSystemProvider provider : providers) {
+            if (provider.supports(properties)) {
+                result.add(provider);
+            }
+        }
+        return result;
     }
 
     /** Registers a provider at highest priority. For testing overrides. */

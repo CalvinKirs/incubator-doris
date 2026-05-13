@@ -26,6 +26,7 @@ import org.apache.doris.common.UserException;
 import org.apache.doris.common.util.NetUtils;
 import org.apache.doris.datasource.property.storage.BrokerProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.service.FrontendOptions;
 
@@ -95,7 +96,9 @@ public final class FileSystemFactory {
             if (provider.supports(properties)) {
                 LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
                         provider.name(), properties.keySet());
-                return provider.create(properties);
+                FileSystemProperties fileSystemProperties = provider.bind(properties);
+                fileSystemProperties.validate();
+                return provider.create(fileSystemProperties);
             }
             tried.add(provider.name());
         }
@@ -103,6 +106,23 @@ public final class FileSystemFactory {
                 "No FileSystemProvider found for properties %s. Tried: %s. "
                         + "Ensure the corresponding fe-filesystem-xxx jar is on the classpath.",
                 properties.keySet(), tried));
+    }
+
+    /**
+     * Resolves filesystem providers that can bind the given properties.
+     */
+    public static List<FileSystemProvider> resolveProviders(Map<String, String> properties) {
+        FileSystemPluginManager mgr = pluginManager;
+        if (mgr != null) {
+            return mgr.resolveProviders(properties);
+        }
+        List<FileSystemProvider> result = new ArrayList<>();
+        for (FileSystemProvider provider : getProviders()) {
+            if (provider.supports(properties)) {
+                result.add(provider);
+            }
+        }
+        return result;
     }
 
     /**

@@ -57,7 +57,7 @@ public final class StoragePropertiesConverter {
             map.put("AWS_ENDPOINT", s3Props.getEndpoint());
             map.put("AWS_ACCESS_KEY", s3Props.getAccessKey());
             map.put("AWS_REGION", s3Props.getRegion());
-            map.put("_STORAGE_TYPE_", s3Props.getStorageName());
+            map.put("_STORAGE_TYPE_", s3Props.getType().name());
             // Bucket is required by cloud-specific operations (listObjectsWithPrefix, getPresignedUrl, etc.)
             if (StringUtils.isNotBlank(s3Props.getBucket())) {
                 map.put("AWS_BUCKET", s3Props.getBucket());

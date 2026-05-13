@@ -20,6 +20,7 @@ package org.apache.doris.filesystem.spi;
 import org.apache.doris.extension.spi.Plugin;
 import org.apache.doris.extension.spi.PluginFactory;
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProperties;
 
 import java.io.IOException;
 import java.util.Map;
@@ -49,6 +50,16 @@ public interface FileSystemProvider extends PluginFactory {
     boolean supports(Map<String, String> properties);
 
     /**
+     * Binds raw key-value properties into provider-owned filesystem properties.
+     *
+     * @param properties raw key-value storage configuration
+     * @return provider-bound filesystem properties
+     */
+    default FileSystemProperties bind(Map<String, String> properties) {
+        return FileSystemProperties.of(properties);
+    }
+
+    /**
      * Creates a FileSystem instance from the given properties.
      * Called only after {@link #supports(Map)} returns true.
      *
@@ -57,6 +68,14 @@ public interface FileSystemProvider extends PluginFactory {
      * @throws IOException if the filesystem cannot be initialized
      */
     FileSystem create(Map<String, String> properties) throws IOException;
+
+    /**
+     * Creates a FileSystem instance from already bound provider properties.
+     */
+    default FileSystem create(FileSystemProperties properties) throws IOException {
+        properties.validate();
+        return create(properties.toFileSystemKv());
+    }
 
     /**
      * Human-readable name for logging/diagnostics (e.g., "S3", "HDFS", "Azure").

@@ -38,11 +38,44 @@ class S3FileSystemProviderTest {
     }
 
     @Test
-    void supports_rejectsConfigurationWithoutCredentialsOrRole() {
+    void supports_acceptsDefaultCredentialChainWithoutStaticCredentialOrRole() {
         Map<String, String> props = new HashMap<>();
         props.put("AWS_ENDPOINT", "https://s3.us-west-2.amazonaws.com");
         props.put("AWS_REGION", "us-west-2");
 
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
+    void supports_rejectsCloudSpecificStorageTypeEvenWithS3CompatibleKeys() {
+        Map<String, String> props = new HashMap<>();
+        props.put("_STORAGE_TYPE_", "COS");
+        props.put("AWS_ENDPOINT", "https://cos.ap-guangzhou.myqcloud.com");
+        props.put("AWS_REGION", "ap-guangzhou");
+        props.put("AWS_ACCESS_KEY", "ak");
+        props.put("AWS_SECRET_KEY", "sk");
+
         Assertions.assertFalse(provider.supports(props));
+    }
+
+    @Test
+    void supports_rejectsKnownCloudSpecificEndpointWithoutStorageType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("AWS_ENDPOINT", "https://cos.ap-guangzhou.myqcloud.com");
+        props.put("AWS_REGION", "ap-guangzhou");
+        props.put("AWS_ACCESS_KEY", "ak");
+        props.put("AWS_SECRET_KEY", "sk");
+
+        Assertions.assertFalse(provider.supports(props));
+    }
+
+    @Test
+    void supports_acceptsExplicitS3CompatibleStorageTypes() {
+        Map<String, String> props = new HashMap<>();
+        props.put("_STORAGE_TYPE_", "MINIO");
+        props.put("AWS_ENDPOINT", "http://minio.local:9000");
+        props.put("AWS_REGION", "us-east-1");
+
+        Assertions.assertTrue(provider.supports(props));
     }
 }

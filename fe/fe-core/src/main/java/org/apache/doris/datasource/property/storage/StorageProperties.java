@@ -19,8 +19,11 @@ package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
 import org.apache.doris.datasource.property.ConnectionProperties;
+import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.StoragePropertiesException;
+import org.apache.doris.fs.FileSystemFactory;
 
 import lombok.Getter;
 import org.apache.commons.lang3.BooleanUtils;
@@ -55,6 +58,7 @@ public abstract class StorageProperties extends ConnectionProperties {
     public static final String DEPRECATED_OSS_HDFS_SUPPORT = "oss.hdfs.enabled";
     protected static final String URI_KEY = "uri";
 
+    public static final String FS_PROVIDER = "fs.provider";
     public static final String FS_PROVIDER_KEY = "provider";
 
     protected final String userFsPropsPrefix = "fs.";
@@ -97,6 +101,11 @@ public abstract class StorageProperties extends ConnectionProperties {
     @Getter
     public Configuration hadoopStorageConfig;
 
+    private transient FileSystemProvider fileSystemProvider;
+
+    @Getter
+    private FileSystemProperties fileSystemProperties;
+
     /**
      * Get backend configuration properties with optional runtime properties.
      * This method allows passing runtime properties (like vended credentials)
@@ -135,6 +144,11 @@ public abstract class StorageProperties extends ConnectionProperties {
      * @return an ordered list of StorageProperties instances
      */
     public static List<StorageProperties> createAll(Map<String, String> origProps) throws UserException {
+        List<StorageProperties> fileSystemProviderProperties = createAllFromFileSystemProviders(origProps);
+        if (!fileSystemProviderProperties.isEmpty()) {
+            return fileSystemProviderProperties;
+        }
+
         List<StorageProperties> result = new ArrayList<>();
         // If the user has explicitly specified any fs.xx.support=true, disable guessIsMe heuristics
         // for all providers to avoid false-positive matches from ambiguous endpoint strings.
@@ -170,6 +184,11 @@ public abstract class StorageProperties extends ConnectionProperties {
      * @throws RuntimeException if no supported storage type is found
      */
     public static StorageProperties createPrimary(Map<String, String> origProps) {
+        StorageProperties fileSystemProviderProperties = createPrimaryFromFileSystemProvider(origProps);
+        if (fileSystemProviderProperties != null) {
+            return fileSystemProviderProperties;
+        }
+
         // If the user has explicitly specified any fs.xx.support=true, disable guessIsMe heuristics
         // for all providers to avoid false-positive matches from ambiguous endpoint strings.
         boolean useGuess = !hasAnyExplicitFsSupport(origProps);
@@ -240,6 +259,141 @@ public abstract class StorageProperties extends ConnectionProperties {
     protected StorageProperties(Type type, Map<String, String> origProps) {
         super(origProps);
         this.type = type;
+    }
+
+    public String getFileSystemProviderName() {
+        if (fileSystemProvider != null) {
+            return fileSystemProvider.name();
+        }
+        return getStorageName();
+    }
+
+    private void bindFileSystemProperties(FileSystemProvider provider, FileSystemProperties properties) {
+        this.fileSystemProvider = provider;
+        this.fileSystemProperties = properties;
+    }
+
+    private static List<StorageProperties> createAllFromFileSystemProviders(Map<String, String> origProps)
+            throws UserException {
+        List<FileSystemProvider> providers = FileSystemFactory.resolveProviders(origProps);
+        if (providers.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        List<StorageProperties> result = new ArrayList<>();
+        boolean useGuess = !hasAnyExplicitProvider(origProps);
+        for (FileSystemProvider provider : providers) {
+            StorageProperties storageProperties = createFromFileSystemProvider(provider, origProps);
+            if (storageProperties != null) {
+                result.add(storageProperties);
+            }
+        }
+        if (useGuess && result.stream().noneMatch(HdfsProperties.class::isInstance)) {
+            StorageProperties hdfsProperties = new HdfsProperties(origProps, false);
+            hdfsProperties.initNormalizeAndCheckProps();
+            hdfsProperties.buildHadoopStorageConfig();
+            result.add(0, hdfsProperties);
+        }
+        return result;
+    }
+
+    private static StorageProperties createPrimaryFromFileSystemProvider(Map<String, String> origProps) {
+        List<FileSystemProvider> providers = FileSystemFactory.resolveProviders(origProps);
+        for (FileSystemProvider provider : providers) {
+            StorageProperties storageProperties = createFromFileSystemProvider(provider, origProps);
+            if (storageProperties != null) {
+                return storageProperties;
+            }
+        }
+        return null;
+    }
+
+    private static StorageProperties createFromFileSystemProvider(
+            FileSystemProvider provider, Map<String, String> origProps) {
+        FileSystemProperties fileSystemProperties = provider.bind(origProps);
+        fileSystemProperties.validate();
+        Map<String, String> boundProps = new HashMap<>(origProps);
+        boundProps.putAll(fileSystemProperties.toFileSystemKv());
+
+        Type resolvedType = resolveType(provider, fileSystemProperties, origProps);
+        StorageProperties storageProperties = createLegacyStorageProperties(resolvedType, boundProps);
+        if (storageProperties == null) {
+            return null;
+        }
+        storageProperties.bindFileSystemProperties(provider, fileSystemProperties);
+        storageProperties.initNormalizeAndCheckProps();
+        storageProperties.buildHadoopStorageConfig();
+        return storageProperties;
+    }
+
+    private static StorageProperties createLegacyStorageProperties(Type type, Map<String, String> props) {
+        switch (type) {
+            case HDFS:
+                return new HdfsProperties(props);
+            case S3:
+                return new S3Properties(props);
+            case OSS:
+                return new OSSProperties(props);
+            case OBS:
+                return new OBSProperties(props);
+            case COS:
+                return new COSProperties(props);
+            case GCS:
+                return new GCSProperties(props);
+            case MINIO:
+                return new MinioProperties(props);
+            case OSS_HDFS:
+                return new OSSHdfsProperties(props);
+            case OZONE:
+                return new OzoneProperties(props);
+            case AZURE:
+                return new AzureProperties(props);
+            case BROKER:
+                return new BrokerProperties(props);
+            case LOCAL:
+                return new LocalProperties(props);
+            case HTTP:
+                return new HttpProperties(props);
+            default:
+                return null;
+        }
+    }
+
+    private static Type resolveType(
+            FileSystemProvider provider, FileSystemProperties fileSystemProperties, Map<String, String> rawProperties) {
+        String providerName = firstNonBlank(rawProperties.get(FS_PROVIDER),
+                rawProperties.get(FS_PROVIDER_KEY),
+                rawProperties.get("_STORAGE_TYPE_"),
+                fileSystemProperties.toFileSystemKv().get("_STORAGE_TYPE_"),
+                provider.name());
+        return typeFromProviderName(providerName);
+    }
+
+    private static Type typeFromProviderName(String providerName) {
+        String normalized = providerName.replace('-', '_').toUpperCase();
+        if ("GCP".equals(normalized)) {
+            return Type.GCS;
+        }
+        try {
+            return Type.valueOf(normalized);
+        } catch (IllegalArgumentException e) {
+            return Type.UNKNOWN;
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (StringUtils.isNotBlank(value)) {
+                return value;
+            }
+        }
+        throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
+    }
+
+    private static boolean hasAnyExplicitProvider(Map<String, String> props) {
+        return StringUtils.isNotBlank(props.get(FS_PROVIDER))
+                || StringUtils.isNotBlank(props.get(FS_PROVIDER_KEY))
+                || hasAnyExplicitFsSupport(props);
     }
 
     private static boolean isFsSupport(Map<String, String> origProps, String fsEnable) {

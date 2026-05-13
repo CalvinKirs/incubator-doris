@@ -18,10 +18,14 @@
 package org.apache.doris.filesystem.s3;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProperties;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * SPI provider for AWS S3 and S3-compatible storage (MinIO, etc.).
@@ -34,30 +38,68 @@ import java.util.Map;
  */
 public class S3FileSystemProvider implements FileSystemProvider {
 
+    private static final String KEY_STORAGE_TYPE = "_STORAGE_TYPE_";
+    private static final String KEY_FS_PROVIDER = "fs.provider";
+    private static final String KEY_LEGACY_PROVIDER = "provider";
+    private static final Set<String> S3_COMPATIBLE_STORAGE_TYPES =
+            new HashSet<>(Arrays.asList("S3", "MINIO", "GCS"));
+
     @Override
     public boolean supports(Map<String, String> properties) {
-        Map<String, String> normalized = S3ObjStorage.normalizeProperties(properties);
-        String accessKey = normalized.get(S3ObjStorage.PROP_ACCESS_KEY);
-        String endpoint = normalized.get(S3ObjStorage.PROP_ENDPOINT);
-        String region = normalized.get(S3ObjStorage.PROP_REGION);
-        String roleArn = normalized.get(S3ObjStorage.PROP_ROLE_ARN);
-        boolean hasCredential = accessKey != null && !accessKey.isEmpty()
-                || roleArn != null && !roleArn.isEmpty();
-        boolean hasLocation = endpoint != null && !endpoint.isEmpty()
-                || region != null && !region.isEmpty();
-        // Support both AK/SK and IAM role based access for cloud snapshot and stage flows.
-        return hasCredential && hasLocation;
+        String storageType = explicitStorageType(properties);
+        if (storageType != null) {
+            return S3_COMPATIBLE_STORAGE_TYPES.contains(storageType.toUpperCase());
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.s3.support"))
+                || "true".equalsIgnoreCase(properties.get("fs.minio.support"))
+                || "true".equalsIgnoreCase(properties.get("fs.gcs.support"))) {
+            return true;
+        }
+        S3FileSystemProperties boundProperties = S3FileSystemProperties.bind(properties);
+        if (isKnownCloudSpecificEndpoint(boundProperties.toFileSystemKv().get(S3ObjStorage.PROP_ENDPOINT))) {
+            return false;
+        }
+        return boundProperties.hasLocation();
+    }
+
+    @Override
+    public FileSystemProperties bind(Map<String, String> properties) {
+        return S3FileSystemProperties.bind(properties);
     }
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        Map<String, String> normalized = S3ObjStorage.normalizeProperties(properties);
-        S3ObjStorage storage = new S3ObjStorage(normalized);
+        return create(bind(properties));
+    }
+
+    @Override
+    public FileSystem create(FileSystemProperties properties) throws IOException {
+        properties.validate();
+        S3ObjStorage storage = new S3ObjStorage(properties.toFileSystemKv());
         return new S3FileSystem(storage);
     }
 
     @Override
     public String name() {
         return "S3";
+    }
+
+    private static boolean isKnownCloudSpecificEndpoint(String endpoint) {
+        return endpoint != null
+                && (endpoint.contains("aliyuncs.com")
+                || endpoint.contains("myqcloud.com")
+                || endpoint.contains("myhuaweicloud.com"));
+    }
+
+    private static String explicitStorageType(Map<String, String> properties) {
+        String storageType = properties.get(KEY_STORAGE_TYPE);
+        if (storageType != null) {
+            return storageType;
+        }
+        storageType = properties.get(KEY_FS_PROVIDER);
+        if (storageType != null) {
+            return storageType;
+        }
+        return properties.get(KEY_LEGACY_PROVIDER);
     }
 }

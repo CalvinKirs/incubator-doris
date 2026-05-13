@@ -18,10 +18,16 @@
 package org.apache.doris.datasource.property.storage;
 
 import org.apache.doris.common.UserException;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
+import org.apache.doris.fs.FileSystemFactory;
+import org.apache.doris.fs.FileSystemPluginManager;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -226,6 +232,54 @@ public class StoragePropertiesTest {
                 "createPrimary should return S3 (first explicit match), not OSS via guessIsMe");
     }
 
+    @Test
+    public void testCreatePrimaryBindsFileSystemPropertiesFromProvider() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(new CanonicalS3Provider());
+        FileSystemFactory.initPluginManager(manager);
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(StorageProperties.FS_PROVIDER, "s3");
+            props.put("custom.endpoint", "https://custom.example.com");
+
+            StorageProperties primary = StorageProperties.createPrimary(props);
+
+            Assertions.assertInstanceOf(S3Properties.class, primary);
+            Assertions.assertEquals("S3", primary.getFileSystemProviderName());
+            Assertions.assertEquals("https://custom.example.com",
+                    primary.getFileSystemProperties().toFileSystemKv().get("s3.endpoint"));
+            Assertions.assertEquals("https://custom.example.com", ((S3Properties) primary).getEndpoint());
+        } finally {
+            FileSystemFactory.initPluginManager(null);
+        }
+    }
+
+    @Test
+    public void testCreateAllKeepsNonObjectFileSystemPropertiesFromProvider() throws UserException {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(new CanonicalS3Provider());
+        manager.registerProvider(new CanonicalHdfsProvider());
+        FileSystemFactory.initPluginManager(manager);
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put("custom.hdfs", "true");
+            props.put("custom.s3", "true");
+            props.put("custom.endpoint", "https://custom.example.com");
+
+            List<StorageProperties> all = StorageProperties.createAll(props);
+            HdfsProperties hdfsProperties = (HdfsProperties) all.stream()
+                    .filter(HdfsProperties.class::isInstance)
+                    .findFirst()
+                    .orElseThrow(AssertionError::new);
+
+            Assertions.assertNotNull(hdfsProperties.getFileSystemProperties());
+            Assertions.assertEquals("hdfs://nameservice1",
+                    hdfsProperties.getFileSystemProperties().toFileSystemKv().get("fs.defaultFS"));
+        } finally {
+            FileSystemFactory.initPluginManager(null);
+        }
+    }
+
     // ========================================================================================
     // 6. Default HDFS fallback is skipped when explicit support is set
     // ========================================================================================
@@ -366,6 +420,58 @@ public class StoragePropertiesTest {
         return all.stream()
                 .map(Object::getClass)
                 .collect(Collectors.toList());
+    }
+
+    private static class CanonicalS3Provider implements FileSystemProvider {
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            return "s3".equalsIgnoreCase(properties.get(StorageProperties.FS_PROVIDER))
+                    || "true".equalsIgnoreCase(properties.get("custom.s3"));
+        }
+
+        @Override
+        public FileSystemProperties bind(Map<String, String> properties) {
+            Map<String, String> kv = new HashMap<>();
+            kv.put("s3.endpoint", properties.get("custom.endpoint"));
+            kv.put("s3.region", "us-east-1");
+            kv.put("s3.credentials_provider_type", "anonymous");
+            return FileSystemProperties.of(kv);
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return "S3";
+        }
+    }
+
+    private static class CanonicalHdfsProvider implements FileSystemProvider {
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            return "true".equalsIgnoreCase(properties.get("custom.hdfs"));
+        }
+
+        @Override
+        public FileSystemProperties bind(Map<String, String> properties) {
+            Map<String, String> kv = new HashMap<>();
+            kv.put("_STORAGE_TYPE_", "HDFS");
+            kv.put("fs.defaultFS", "hdfs://nameservice1");
+            return FileSystemProperties.of(kv);
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return "HDFS";
+        }
     }
 
     // ========================================================================================

@@ -18,11 +18,11 @@
 package org.apache.doris.filesystem.cos;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProperties;
 import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -30,16 +30,25 @@ import java.util.Map;
  *
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
- * <p>Identified by an endpoint containing {@code myqcloud.com}. Translates COS-specific
- * property keys to S3-compatible keys and delegates core I/O to {@link S3FileSystem},
+ * <p>Identified by an endpoint containing {@code myqcloud.com}. Binds COS-specific
+ * property keys through the COS property model and delegates core I/O to {@link S3FileSystem},
  * while {@link CosObjStorage} overrides cloud-specific operations (presigned URL, STS)
  * using the Tencent Cloud native SDK.
  */
 public class CosFileSystemProvider implements FileSystemProvider {
 
+    private static final String STORAGE_TYPE = "COS";
+    private static final String KEY_STORAGE_TYPE = "_STORAGE_TYPE_";
+    private static final String KEY_FS_PROVIDER = "fs.provider";
+    private static final String KEY_LEGACY_PROVIDER = "provider";
+
     @Override
     public boolean supports(Map<String, String> properties) {
-        if ("COS".equals(properties.get("_STORAGE_TYPE_"))) {
+        String storageType = explicitStorageType(properties);
+        if (storageType != null) {
+            return STORAGE_TYPE.equalsIgnoreCase(storageType);
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.cos.support"))) {
             return true;
         }
         String endpoint = properties.get("COS_ENDPOINT");
@@ -50,23 +59,35 @@ public class CosFileSystemProvider implements FileSystemProvider {
     }
 
     @Override
+    public FileSystemProperties bind(Map<String, String> properties) {
+        return CosFileSystemProperties.bind(properties);
+    }
+
+    @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        Map<String, String> props = new HashMap<>(properties);
-        if (properties.containsKey("COS_ENDPOINT")) {
-            props.put("AWS_ENDPOINT", properties.get("COS_ENDPOINT"));
-        }
-        if (properties.containsKey("COS_ACCESS_KEY")) {
-            props.put("AWS_ACCESS_KEY", properties.get("COS_ACCESS_KEY"));
-        }
-        if (properties.containsKey("COS_SECRET_KEY")) {
-            props.put("AWS_SECRET_KEY", properties.get("COS_SECRET_KEY"));
-        }
-        props.put("use_path_style", "false");
-        return new S3FileSystem(new CosObjStorage(props));
+        return create(bind(properties));
+    }
+
+    @Override
+    public FileSystem create(FileSystemProperties properties) throws IOException {
+        properties.validate();
+        return new S3FileSystem(new CosObjStorage(properties.toFileSystemKv()));
     }
 
     @Override
     public String name() {
-        return "COS";
+        return STORAGE_TYPE;
+    }
+
+    private static String explicitStorageType(Map<String, String> properties) {
+        String storageType = properties.get(KEY_STORAGE_TYPE);
+        if (storageType != null) {
+            return storageType;
+        }
+        storageType = properties.get(KEY_FS_PROVIDER);
+        if (storageType != null) {
+            return storageType;
+        }
+        return properties.get(KEY_LEGACY_PROVIDER);
     }
 }
