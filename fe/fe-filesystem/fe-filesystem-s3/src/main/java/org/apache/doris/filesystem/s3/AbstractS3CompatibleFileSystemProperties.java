@@ -27,6 +27,8 @@ import java.util.Map;
 
 public abstract class AbstractS3CompatibleFileSystemProperties implements FileSystemProperties {
 
+    public static final String CANONICAL_ENDPOINT = S3ObjStorage.PROP_ENDPOINT;
+
     private final String storageType;
     private final Map<String, String> properties;
 

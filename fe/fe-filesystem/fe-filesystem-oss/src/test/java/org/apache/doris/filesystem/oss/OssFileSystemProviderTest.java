@@ -50,6 +50,15 @@ class OssFileSystemProviderTest {
     }
 
     @Test
+    void supports_usesBoundEndpointAliasPriority() {
+        Map<String, String> props = new HashMap<>();
+        props.put("oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com");
+        props.put("AWS_ENDPOINT", "https://custom.endpoint");
+
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
     void bind_translatesOssPropertiesToCanonicalFileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("oss.endpoint", "https://oss-cn-hangzhou.aliyuncs.com");

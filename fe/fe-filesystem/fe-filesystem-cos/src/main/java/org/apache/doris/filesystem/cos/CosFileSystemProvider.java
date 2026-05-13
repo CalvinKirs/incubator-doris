@@ -49,10 +49,8 @@ public class CosFileSystemProvider implements FileSystemProvider {
         if ("true".equalsIgnoreCase(properties.get("fs.cos.support"))) {
             return true;
         }
-        String endpoint = properties.get("COS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
-        }
+        String endpoint = CosFileSystemProperties.bind(properties).toFileSystemKv()
+                .get(CosFileSystemProperties.CANONICAL_ENDPOINT);
         return endpoint != null && endpoint.contains("myqcloud.com");
     }
 

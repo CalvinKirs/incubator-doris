@@ -17,77 +17,66 @@
 
 package org.apache.doris.fs;
 
-import org.apache.doris.datasource.property.storage.AbstractS3CompatibleProperties;
-import org.apache.doris.datasource.property.storage.AzureProperties;
-import org.apache.doris.datasource.property.storage.BrokerProperties;
-import org.apache.doris.datasource.property.storage.HdfsCompatibleProperties;
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystemProperties;
 import org.apache.doris.filesystem.FileSystemPropertyKeys;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.apache.commons.lang3.StringUtils;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
  * Converts legacy {@link StorageProperties} objects to the {@code Map<String, String>} format
- * expected by {@link org.apache.doris.filesystem.FileSystemProvider#supports} and
- * {@link org.apache.doris.filesystem.FileSystemProvider#create}.
+ * expected by {@link FileSystemProvider#supports} and {@link FileSystemProvider#create}.
  *
- * <p>This class is the ONLY place in fe-core that knows about the mapping between
- * StorageProperties subtypes and filesystem property keys. All other code in fe-core
- * should use {@link FileSystemFactory#get(Map)} or {@link FileSystemFactory#get(StorageProperties)}.
+ * <p>This class is a compatibility adapter for callers that still hold {@link StorageProperties}.
+ * Concrete filesystem parameters are owned by {@link FileSystemProvider#bind(Map)} and
+ * {@link FileSystemProperties#toFileSystemKv()}, not by this adapter.
  */
 public final class StoragePropertiesConverter {
 
     private StoragePropertiesConverter() {}
 
     /**
-     * Converts a {@link StorageProperties} instance to a flat {@code Map<String, String>}
-     * suitable for passing to {@code FileSystemProvider.supports()} and
-     * {@code FileSystemProvider.create()}.
-     *
-     * <p>Uses {@code getBackendConfigProperties()} as the base map and injects
-     * additional type-marker keys so that providers can unambiguously identify themselves.
+     * Converts a {@link StorageProperties} instance to provider-bound filesystem properties.
      */
     public static Map<String, String> toMap(StorageProperties props) {
-        Map<String, String> map = new HashMap<>(props.getBackendConfigProperties());
-
-        if (props instanceof AbstractS3CompatibleProperties) {
-            AbstractS3CompatibleProperties s3Props = (AbstractS3CompatibleProperties) props;
-            map.put("AWS_ENDPOINT", s3Props.getEndpoint());
-            map.put("AWS_ACCESS_KEY", s3Props.getAccessKey());
-            map.put("AWS_REGION", s3Props.getRegion());
-            map.put(FileSystemPropertyKeys.STORAGE_TYPE, s3Props.getType().name());
-            // Bucket is required by cloud-specific operations (listObjectsWithPrefix, getPresignedUrl, etc.)
-            if (StringUtils.isNotBlank(s3Props.getBucket())) {
-                map.put("AWS_BUCKET", s3Props.getBucket());
-            }
-            // Pass through STS role ARN and external ID when present in original properties
-            String roleArn = s3Props.getOrigProps().get("sts.role_arn");
-            if (StringUtils.isNotBlank(roleArn)) {
-                map.put("AWS_ROLE_ARN", roleArn);
-            }
-            String externalId = s3Props.getOrigProps().get("sts.external_id");
-            if (StringUtils.isNotBlank(externalId)) {
-                map.put("AWS_EXTERNAL_ID", externalId);
-            }
-        } else if (props instanceof AzureProperties) {
-            AzureProperties azureProps = (AzureProperties) props;
-            map.put("AZURE_ACCOUNT_NAME", azureProps.getAccountName());
-            if (StringUtils.isNotBlank(azureProps.getAccountKey())) {
-                map.put("AZURE_ACCOUNT_KEY", azureProps.getAccountKey());
-            }
-            if (StringUtils.isNotBlank(azureProps.getEndpoint())) {
-                map.put("AZURE_ENDPOINT", azureProps.getEndpoint());
-            }
-            map.put(FileSystemPropertyKeys.STORAGE_TYPE, "AZURE");
-        } else if (props instanceof HdfsCompatibleProperties) {
-            map.put(FileSystemPropertyKeys.STORAGE_TYPE, "HDFS");
-        } else if (props instanceof BrokerProperties) {
-            map.put(FileSystemPropertyKeys.STORAGE_TYPE, "BROKER");
+        FileSystemProperties boundProperties = props.getFileSystemProperties();
+        if (boundProperties != null) {
+            return withProviderKeys(boundProperties.toFileSystemKv(), props.getType().name(),
+                    props.getFileSystemProviderName());
         }
 
-        return map;
+        Map<String, String> rawProperties = new HashMap<>(props.getOrigProps());
+        rawProperties.putIfAbsent(FileSystemPropertyKeys.STORAGE_TYPE, props.getType().name());
+        String providerName = props.getFileSystemProviderName();
+        if (StringUtils.isNotBlank(providerName) && !props.getType().name().equalsIgnoreCase(providerName)) {
+            rawProperties.putIfAbsent(FileSystemPropertyKeys.FS_PROVIDER, providerName);
+        }
+
+        List<FileSystemProvider> providers = FileSystemFactory.resolveProviders(rawProperties);
+        if (!providers.isEmpty()) {
+            FileSystemProvider provider = providers.get(0);
+            FileSystemProperties fileSystemProperties = provider.bind(rawProperties);
+            fileSystemProperties.validate();
+            return withProviderKeys(fileSystemProperties.toFileSystemKv(), provider.storageType(), provider.name());
+        }
+
+        Map<String, String> legacyProperties = new HashMap<>(props.getBackendConfigProperties());
+        legacyProperties.putIfAbsent(FileSystemPropertyKeys.STORAGE_TYPE, props.getType().name());
+        return legacyProperties;
+    }
+
+    private static Map<String, String> withProviderKeys(
+            Map<String, String> fileSystemProperties, String storageType, String providerName) {
+        Map<String, String> result = new HashMap<>(fileSystemProperties);
+        result.putIfAbsent(FileSystemPropertyKeys.STORAGE_TYPE, storageType);
+        if (StringUtils.isNotBlank(providerName) && !storageType.equalsIgnoreCase(providerName)) {
+            result.putIfAbsent(FileSystemPropertyKeys.FS_PROVIDER, providerName);
+        }
+        return result;
     }
 }

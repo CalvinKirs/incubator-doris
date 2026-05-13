@@ -49,10 +49,8 @@ public class ObsFileSystemProvider implements FileSystemProvider {
         if ("true".equalsIgnoreCase(properties.get("fs.obs.support"))) {
             return true;
         }
-        String endpoint = properties.get("OBS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
-        }
+        String endpoint = ObsFileSystemProperties.bind(properties).toFileSystemKv()
+                .get(ObsFileSystemProperties.CANONICAL_ENDPOINT);
         return endpoint != null && endpoint.contains("myhuaweicloud.com");
     }
 

@@ -50,6 +50,15 @@ class CosFileSystemProviderTest {
     }
 
     @Test
+    void supports_usesBoundEndpointAliasPriority() {
+        Map<String, String> props = new HashMap<>();
+        props.put("cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com");
+        props.put("AWS_ENDPOINT", "https://custom.endpoint");
+
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
     void bind_translatesCosPropertiesToCanonicalFileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com");

@@ -49,10 +49,8 @@ public class OssFileSystemProvider implements FileSystemProvider {
         if ("true".equalsIgnoreCase(properties.get("fs.oss.support"))) {
             return true;
         }
-        String endpoint = properties.get("OSS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
-        }
+        String endpoint = OssFileSystemProperties.bind(properties).toFileSystemKv()
+                .get(OssFileSystemProperties.CANONICAL_ENDPOINT);
         return endpoint != null && endpoint.contains("aliyuncs.com");
     }
 

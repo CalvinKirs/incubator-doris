@@ -18,11 +18,15 @@
 package org.apache.doris.fs;
 
 import org.apache.doris.datasource.property.storage.StorageProperties;
+import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProperties;
 import org.apache.doris.filesystem.FileSystemPropertyKeys;
+import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
+import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -43,5 +47,57 @@ class StoragePropertiesConverterTest {
         Assertions.assertEquals("COS", fileSystemProperties.get(FileSystemPropertyKeys.STORAGE_TYPE));
         Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com",
                 fileSystemProperties.get("AWS_ENDPOINT"));
+    }
+
+    @Test
+    void toMap_usesProviderBoundPropertiesWithoutRebuildingObjectStorageKeys() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(new CanonicalS3Provider());
+        FileSystemFactory.initPluginManager(manager);
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(StorageProperties.FS_PROVIDER, "S3-CUSTOM");
+            props.put("custom.endpoint", "https://custom.example.com");
+
+            StorageProperties storageProperties = StorageProperties.createPrimary(props);
+            Map<String, String> fileSystemProperties = StoragePropertiesConverter.toMap(storageProperties);
+
+            Assertions.assertEquals("https://custom.example.com", fileSystemProperties.get("s3.endpoint"));
+            Assertions.assertEquals("S3-CUSTOM", fileSystemProperties.get(FileSystemPropertyKeys.FS_PROVIDER));
+            Assertions.assertEquals("S3", fileSystemProperties.get(FileSystemPropertyKeys.STORAGE_TYPE));
+            Assertions.assertFalse(fileSystemProperties.containsKey("AWS_ACCESS_KEY"));
+        } finally {
+            FileSystemFactory.initPluginManager(null);
+        }
+    }
+
+    private static class CanonicalS3Provider implements FileSystemProvider {
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            return "S3-CUSTOM".equalsIgnoreCase(properties.get(StorageProperties.FS_PROVIDER));
+        }
+
+        @Override
+        public FileSystemProperties bind(Map<String, String> properties) {
+            Map<String, String> kv = new HashMap<>();
+            kv.put("s3.endpoint", properties.get("custom.endpoint"));
+            kv.put("s3.region", "us-east-1");
+            return FileSystemProperties.of(kv);
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return "S3-CUSTOM";
+        }
+
+        @Override
+        public String storageType() {
+            return "S3";
+        }
     }
 }

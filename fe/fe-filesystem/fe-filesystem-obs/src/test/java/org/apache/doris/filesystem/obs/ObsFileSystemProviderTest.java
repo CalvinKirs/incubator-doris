@@ -50,6 +50,15 @@ class ObsFileSystemProviderTest {
     }
 
     @Test
+    void supports_usesBoundEndpointAliasPriority() {
+        Map<String, String> props = new HashMap<>();
+        props.put("obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com");
+        props.put("AWS_ENDPOINT", "https://custom.endpoint");
+
+        Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
     void bind_translatesObsPropertiesToCanonicalFileSystemProperties() {
         Map<String, String> props = new HashMap<>();
         props.put("obs.endpoint", "https://obs.cn-north-4.myhuaweicloud.com");

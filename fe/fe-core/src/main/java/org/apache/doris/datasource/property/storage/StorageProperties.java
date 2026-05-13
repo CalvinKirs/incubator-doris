@@ -39,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.BiFunction;
+import java.util.function.Function;
 
 public abstract class StorageProperties extends ConnectionProperties {
 
@@ -197,21 +198,15 @@ public abstract class StorageProperties extends ConnectionProperties {
         throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
     }
 
+    private static final Map<Type, Function<Map<String, String>, StorageProperties>> STORAGE_PROPERTIES_CREATORS =
+            createStoragePropertiesCreators();
+
     /**
-     * Registry of all supported storage provider detection functions.
-     * <p>
-     * Each entry is a {@link BiFunction} that takes:
-     * <ul>
-     *   <li>{@code props} — the user-supplied property map</li>
-     *   <li>{@code guess} — whether heuristic-based {@code guessIsMe} detection is enabled.
-     *       When {@code false}, only explicit {@code fs.xx.support=true} flags are honored,
-     *       preventing endpoint-based heuristics from causing false-positive matches
-     *       across providers (e.g., an {@code aliyuncs.com} endpoint accidentally
-     *       matching both OSS and S3).</li>
-     * </ul>
-     * Returns a {@link StorageProperties} instance if the provider matches, or {@code null} otherwise.
+     * Legacy fallback detectors for callers that have not been routed through
+     * {@link FileSystemProvider}. The main FS provider path must not use this list,
+     * because it may run heuristic {@code guessIsMe} matching.
      */
-    private static final List<BiFunction<Map<String, String>, Boolean, StorageProperties>> PROVIDERS =
+    private static final List<BiFunction<Map<String, String>, Boolean, StorageProperties>> LEGACY_STORAGE_DETECTORS =
             Arrays.asList(
                     (props, guess) -> (isFsSupport(props, FS_HDFS_SUPPORT)
                             || isProviderType(props, Type.HDFS)
@@ -320,7 +315,7 @@ public abstract class StorageProperties extends ConnectionProperties {
         FileSystemProperties fileSystemProperties = provider.bind(origProps);
         fileSystemProperties.validate();
         Map<String, String> boundProps = provider.toStoragePropertiesKv(origProps, fileSystemProperties);
-        StorageProperties storageProperties = createFromLegacyProviders(boundProps, false);
+        StorageProperties storageProperties = createFromStorageType(provider.storageType(), boundProps);
         if (storageProperties == null) {
             throw new StoragePropertiesException("FileSystem provider " + provider.name()
                     + " does not expose a supported storage properties type.");
@@ -333,7 +328,7 @@ public abstract class StorageProperties extends ConnectionProperties {
 
     private static List<StorageProperties> createAllFromLegacyProviders(Map<String, String> props, boolean useGuess) {
         List<StorageProperties> result = new ArrayList<>();
-        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : PROVIDERS) {
+        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : LEGACY_STORAGE_DETECTORS) {
             StorageProperties storageProperties = func.apply(props, useGuess);
             if (storageProperties != null) {
                 result.add(storageProperties);
@@ -343,13 +338,56 @@ public abstract class StorageProperties extends ConnectionProperties {
     }
 
     private static StorageProperties createFromLegacyProviders(Map<String, String> props, boolean useGuess) {
-        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : PROVIDERS) {
+        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : LEGACY_STORAGE_DETECTORS) {
             StorageProperties storageProperties = func.apply(props, useGuess);
             if (storageProperties != null) {
                 return storageProperties;
             }
         }
         return null;
+    }
+
+    private static StorageProperties createFromStorageType(String storageType, Map<String, String> props) {
+        if (StringUtils.isBlank(storageType)) {
+            return null;
+        }
+        Type type = findStorageType(storageType);
+        if (type == null) {
+            return null;
+        }
+        Function<Map<String, String>, StorageProperties> creator = STORAGE_PROPERTIES_CREATORS.get(type);
+        if (creator == null) {
+            return null;
+        }
+        return creator.apply(props);
+    }
+
+    private static Type findStorageType(String storageType) {
+        String normalizedStorageType = normalizeProviderName(storageType);
+        for (Type type : Type.values()) {
+            if (type.name().equals(normalizedStorageType)) {
+                return type;
+            }
+        }
+        return null;
+    }
+
+    private static Map<Type, Function<Map<String, String>, StorageProperties>> createStoragePropertiesCreators() {
+        Map<Type, Function<Map<String, String>, StorageProperties>> creators = new HashMap<>();
+        creators.put(Type.HDFS, HdfsProperties::new);
+        creators.put(Type.S3, S3Properties::new);
+        creators.put(Type.OSS, OSSProperties::new);
+        creators.put(Type.OBS, OBSProperties::new);
+        creators.put(Type.COS, COSProperties::new);
+        creators.put(Type.GCS, GCSProperties::new);
+        creators.put(Type.OSS_HDFS, OSSHdfsProperties::new);
+        creators.put(Type.MINIO, MinioProperties::new);
+        creators.put(Type.OZONE, OzoneProperties::new);
+        creators.put(Type.AZURE, AzureProperties::new);
+        creators.put(Type.BROKER, BrokerProperties::new);
+        creators.put(Type.LOCAL, LocalProperties::new);
+        creators.put(Type.HTTP, HttpProperties::new);
+        return creators;
     }
 
     private static boolean hasAnyExplicitProvider(Map<String, String> props) {
