@@ -17,6 +17,9 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
+
 import org.junit.jupiter.api.Assertions;
 import org.junit.jupiter.api.Test;
 
@@ -77,5 +80,19 @@ class S3FileSystemProviderTest {
         props.put("AWS_REGION", "us-east-1");
 
         Assertions.assertTrue(provider.supports(props));
+    }
+
+    @Test
+    void toStoragePropertiesKv_preservesS3CompatibleStorageType() {
+        Map<String, String> props = new HashMap<>();
+        props.put("fs.minio.support", "true");
+        props.put("minio.endpoint", "http://minio.local:9000");
+        props.put("minio.region", "us-east-1");
+
+        FileSystemProperties boundProperties = provider.bind(props);
+        Map<String, String> storageProperties = provider.toStoragePropertiesKv(props, boundProperties);
+
+        Assertions.assertEquals("MINIO", storageProperties.get(FileSystemPropertyKeys.STORAGE_TYPE));
+        Assertions.assertEquals("http://minio.local:9000", storageProperties.get(S3ObjStorage.PROP_ENDPOINT));
     }
 }

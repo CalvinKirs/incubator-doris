@@ -33,12 +33,10 @@ import org.apache.hadoop.conf.Configuration;
 
 import java.lang.reflect.Field;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.BiFunction;
 import java.util.function.Function;
 
 public abstract class StorageProperties extends ConnectionProperties {
@@ -150,19 +148,15 @@ public abstract class StorageProperties extends ConnectionProperties {
         if (!fileSystemProviderProperties.isEmpty()) {
             return fileSystemProviderProperties;
         }
-
-        List<StorageProperties> result = new ArrayList<>();
-        // If the user has explicitly specified any fs.xx.support=true, disable guessIsMe heuristics
-        // for all providers to avoid false-positive matches from ambiguous endpoint strings.
-        boolean useGuess = !hasAnyExplicitProvider(origProps);
-        result.addAll(createAllFromLegacyProviders(origProps, useGuess));
-        // When no explicit fs.xx.support flag is set, add a default HDFS storage as fallback.
-        // When the user has explicitly declared providers via fs.xx.support=true, skip the
-        // default HDFS to avoid injecting an unwanted provider into the result.
-        if (useGuess && result.stream().noneMatch(HdfsProperties.class::isInstance)) {
-            result.add(0, new HdfsProperties(origProps, false));
+        if (hasAnyExplicitProvider(origProps)) {
+            throw new StoragePropertiesException("No FileSystemProvider found for explicit storage configuration: "
+                    + origProps.keySet());
         }
 
+        List<StorageProperties> result = new ArrayList<>();
+        if (!hasAnyExplicitProvider(origProps)) {
+            result.add(0, new HdfsProperties(origProps, false));
+        }
         for (StorageProperties storageProperties : result) {
             storageProperties.initNormalizeAndCheckProps();
             storageProperties.buildHadoopStorageConfig();
@@ -186,77 +180,11 @@ public abstract class StorageProperties extends ConnectionProperties {
             return fileSystemProviderProperties;
         }
 
-        // If the user has explicitly specified any fs.xx.support=true, disable guessIsMe heuristics
-        // for all providers to avoid false-positive matches from ambiguous endpoint strings.
-        boolean useGuess = !hasAnyExplicitProvider(origProps);
-        StorageProperties storageProperties = createFromLegacyProviders(origProps, useGuess);
-        if (storageProperties != null) {
-            storageProperties.initNormalizeAndCheckProps();
-            storageProperties.buildHadoopStorageConfig();
-            return storageProperties;
-        }
         throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
     }
 
     private static final Map<Type, Function<Map<String, String>, StorageProperties>> STORAGE_PROPERTIES_CREATORS =
             createStoragePropertiesCreators();
-
-    /**
-     * Legacy fallback detectors for callers that have not been routed through
-     * {@link FileSystemProvider}. The main FS provider path must not use this list,
-     * because it may run heuristic {@code guessIsMe} matching.
-     */
-    private static final List<BiFunction<Map<String, String>, Boolean, StorageProperties>> LEGACY_STORAGE_DETECTORS =
-            Arrays.asList(
-                    (props, guess) -> (isFsSupport(props, FS_HDFS_SUPPORT)
-                            || isProviderType(props, Type.HDFS)
-                            || (guess && HdfsProperties.guessIsMe(props))) ? new HdfsProperties(props) : null,
-                    (props, guess) -> {
-                        // OSS-HDFS and OSS are mutually exclusive - check OSS-HDFS first
-                        if ((isFsSupport(props, FS_OSS_HDFS_SUPPORT)
-                                || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT))
-                                || isProviderType(props, Type.OSS_HDFS)
-                                || (guess && OSSHdfsProperties.guessIsMe(props))) {
-                            return new OSSHdfsProperties(props);
-                        }
-                        // Only check for regular OSS if OSS-HDFS is not enabled
-                        if (isFsSupport(props, FS_OSS_SUPPORT)
-                                || isProviderType(props, Type.OSS)
-                                || (guess && OSSProperties.guessIsMe(props))) {
-                            return new OSSProperties(props);
-                        }
-                        return null;
-                    },
-                    (props, guess) -> (isFsSupport(props, FS_S3_SUPPORT)
-                            || isProviderType(props, Type.S3)
-                            || (guess && S3Properties.guessIsMe(props))) ? new S3Properties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_OBS_SUPPORT)
-                            || isProviderType(props, Type.OBS)
-                            || (guess && OBSProperties.guessIsMe(props))) ? new OBSProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_COS_SUPPORT)
-                            || isProviderType(props, Type.COS)
-                            || (guess && COSProperties.guessIsMe(props))) ? new COSProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_GCS_SUPPORT)
-                            || isProviderType(props, Type.GCS)
-                            || (guess && GCSProperties.guessIsMe(props))) ? new GCSProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_AZURE_SUPPORT)
-                            || isProviderType(props, Type.AZURE)
-                            || (guess && AzureProperties.guessIsMe(props))) ? new AzureProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_MINIO_SUPPORT)
-                            || isProviderType(props, Type.MINIO)
-                            || (guess && MinioProperties.guessIsMe(props))) ? new MinioProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_OZONE_SUPPORT)
-                            || isProviderType(props, Type.OZONE)) ? new OzoneProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_BROKER_SUPPORT)
-                            || isProviderType(props, Type.BROKER)
-                            || (guess && BrokerProperties.guessIsMe(props))) ? new BrokerProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_LOCAL_SUPPORT)
-                            || isProviderType(props, Type.LOCAL)
-                            || (guess && LocalProperties.guessIsMe(props))) ? new LocalProperties(props) : null,
-                    (props, guess) -> (isFsSupport(props, FS_HTTP_SUPPORT)
-                            || isProviderType(props, Type.HTTP)
-                            || (guess && HttpProperties.guessIsMe(props))) ? new HttpProperties(props) : null
-            );
 
     protected StorageProperties(Type type, Map<String, String> origProps) {
         super(origProps);
@@ -283,14 +211,14 @@ public abstract class StorageProperties extends ConnectionProperties {
         }
 
         List<StorageProperties> result = new ArrayList<>();
-        boolean useGuess = !hasAnyExplicitProvider(origProps);
+        boolean allowDefaultHdfs = !hasAnyExplicitProvider(origProps);
         for (FileSystemProvider provider : providers) {
             StorageProperties storageProperties = createFromFileSystemProvider(provider, origProps);
             if (storageProperties != null) {
                 result.add(storageProperties);
             }
         }
-        if (useGuess && result.stream().noneMatch(HdfsProperties.class::isInstance)) {
+        if (allowDefaultHdfs && result.stream().noneMatch(HdfsProperties.class::isInstance)) {
             StorageProperties hdfsProperties = new HdfsProperties(origProps, false);
             hdfsProperties.initNormalizeAndCheckProps();
             hdfsProperties.buildHadoopStorageConfig();
@@ -315,7 +243,8 @@ public abstract class StorageProperties extends ConnectionProperties {
         FileSystemProperties fileSystemProperties = provider.bind(origProps);
         fileSystemProperties.validate();
         Map<String, String> boundProps = provider.toStoragePropertiesKv(origProps, fileSystemProperties);
-        StorageProperties storageProperties = createFromStorageType(provider.storageType(), boundProps);
+        String storageType = boundProps.getOrDefault(FileSystemPropertyKeys.STORAGE_TYPE, provider.storageType());
+        StorageProperties storageProperties = createFromStorageType(storageType, boundProps);
         if (storageProperties == null) {
             throw new StoragePropertiesException("FileSystem provider " + provider.name()
                     + " does not expose a supported storage properties type.");
@@ -324,27 +253,6 @@ public abstract class StorageProperties extends ConnectionProperties {
         storageProperties.initNormalizeAndCheckProps();
         storageProperties.buildHadoopStorageConfig();
         return storageProperties;
-    }
-
-    private static List<StorageProperties> createAllFromLegacyProviders(Map<String, String> props, boolean useGuess) {
-        List<StorageProperties> result = new ArrayList<>();
-        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : LEGACY_STORAGE_DETECTORS) {
-            StorageProperties storageProperties = func.apply(props, useGuess);
-            if (storageProperties != null) {
-                result.add(storageProperties);
-            }
-        }
-        return result;
-    }
-
-    private static StorageProperties createFromLegacyProviders(Map<String, String> props, boolean useGuess) {
-        for (BiFunction<Map<String, String>, Boolean, StorageProperties> func : LEGACY_STORAGE_DETECTORS) {
-            StorageProperties storageProperties = func.apply(props, useGuess);
-            if (storageProperties != null) {
-                return storageProperties;
-            }
-        }
-        return null;
     }
 
     private static StorageProperties createFromStorageType(String storageType, Map<String, String> props) {
@@ -397,14 +305,6 @@ public abstract class StorageProperties extends ConnectionProperties {
                 || hasAnyExplicitFsSupport(props);
     }
 
-    private static boolean isProviderType(Map<String, String> props, Type type) {
-        String provider = FileSystemPropertyKeys.explicitProvider(props);
-        if (StringUtils.isBlank(provider)) {
-            return false;
-        }
-        return type.name().equals(normalizeProviderName(provider));
-    }
-
     private static String normalizeProviderName(String providerName) {
         String normalized = providerName.replace('-', '_').toUpperCase();
         if ("GCP".equals(normalized)) {
@@ -413,37 +313,18 @@ public abstract class StorageProperties extends ConnectionProperties {
         return normalized;
     }
 
-    private static boolean isFsSupport(Map<String, String> origProps, String fsEnable) {
-        return origProps.getOrDefault(fsEnable, "false").equalsIgnoreCase("true");
-    }
-
     /**
      * Checks whether the user has explicitly set any {@code fs.xx.support=true} property.
      * <p>
-     * When at least one explicit {@code fs.xx.support} flag is present, the system should
-     * rely solely on these flags for provider matching and skip the heuristic-based
-     * {@code guessIsMe} inference. This prevents ambiguous endpoint strings (e.g.,
-     * {@code aliyuncs.com}) from accidentally triggering multiple providers (e.g.,
-     * both OSS and S3) at the same time.
+     * Provider matching is owned by {@link FileSystemFactory} and
+     * {@link FileSystemProvider#supports(Map)}. This flag is only used here to decide
+     * whether the legacy default-HDFS fallback may be injected after provider binding.
      *
      * @param props the raw property map from user configuration
      * @return {@code true} if any {@code fs.xx.support} property is explicitly set to "true"
      */
     private static boolean hasAnyExplicitFsSupport(Map<String, String> props) {
-        return isFsSupport(props, FS_HDFS_SUPPORT)
-                || isFsSupport(props, FS_S3_SUPPORT)
-                || isFsSupport(props, FS_GCS_SUPPORT)
-                || isFsSupport(props, FS_MINIO_SUPPORT)
-                || isFsSupport(props, FS_BROKER_SUPPORT)
-                || isFsSupport(props, FS_AZURE_SUPPORT)
-                || isFsSupport(props, FS_OSS_SUPPORT)
-                || isFsSupport(props, FS_OBS_SUPPORT)
-                || isFsSupport(props, FS_COS_SUPPORT)
-                || isFsSupport(props, FS_OSS_HDFS_SUPPORT)
-                || isFsSupport(props, FS_LOCAL_SUPPORT)
-                || isFsSupport(props, FS_HTTP_SUPPORT)
-                || isFsSupport(props, FS_OZONE_SUPPORT)
-                || isFsSupport(props, DEPRECATED_OSS_HDFS_SUPPORT);
+        return FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(props);
     }
 
     protected static boolean checkIdentifierKey(Map<String, String> origProps, List<Field> fields) {

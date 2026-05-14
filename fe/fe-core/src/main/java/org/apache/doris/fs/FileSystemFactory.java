@@ -91,16 +91,16 @@ public final class FileSystemFactory {
             return mgr.createFileSystem(properties);
         }
         // Fallback: ServiceLoader discovery (unit-test / migration path)
-        List<FileSystemProvider> providers = getProviders();
+        List<FileSystemProvider> providers = resolveProvidersFrom(getProviders(), properties);
         List<String> tried = new ArrayList<>();
         for (FileSystemProvider provider : providers) {
-            if (provider.supports(properties)) {
-                LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
-                        provider.name(), properties.keySet());
-                FileSystemProperties fileSystemProperties = provider.bind(properties);
-                fileSystemProperties.validate();
-                return provider.create(fileSystemProperties);
-            }
+            LOG.debug("FileSystemFactory: selected SPI provider '{}' for keys={}",
+                    provider.name(), properties.keySet());
+            FileSystemProperties fileSystemProperties = provider.bind(properties);
+            fileSystemProperties.validate();
+            return provider.create(fileSystemProperties);
+        }
+        for (FileSystemProvider provider : getProviders()) {
             tried.add(provider.name());
         }
         throw new IOException(String.format(
@@ -117,13 +117,38 @@ public final class FileSystemFactory {
         if (mgr != null) {
             return mgr.resolveProviders(properties);
         }
+        return resolveProvidersFrom(getProviders(), properties);
+    }
+
+    static List<FileSystemProvider> resolveProvidersFrom(
+            List<FileSystemProvider> providers, Map<String, String> properties) {
+        String factoryProvider = FileSystemPropertyKeys.explicitFactoryProvider(properties);
+        if (hasText(factoryProvider)) {
+            return matchFactoryProvider(providers, factoryProvider);
+        }
+
         List<FileSystemProvider> result = new ArrayList<>();
-        for (FileSystemProvider provider : getProviders()) {
+        for (FileSystemProvider provider : providers) {
             if (provider.supports(properties)) {
                 result.add(provider);
             }
         }
         return result;
+    }
+
+    private static List<FileSystemProvider> matchFactoryProvider(
+            List<FileSystemProvider> providers, String factoryProvider) {
+        List<FileSystemProvider> result = new ArrayList<>();
+        for (FileSystemProvider provider : providers) {
+            if (provider.name().equalsIgnoreCase(factoryProvider)) {
+                result.add(provider);
+            }
+        }
+        return result;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.trim().isEmpty();
     }
 
     /**

@@ -49,6 +49,9 @@ public class CosFileSystemProvider implements FileSystemProvider {
         if ("true".equalsIgnoreCase(properties.get("fs.cos.support"))) {
             return true;
         }
+        if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+            return false;
+        }
         String endpoint = CosFileSystemProperties.bind(properties).toFileSystemKv()
                 .get(CosFileSystemProperties.CANONICAL_ENDPOINT);
         return endpoint != null && endpoint.contains("myqcloud.com");
@@ -76,6 +79,6 @@ public class CosFileSystemProvider implements FileSystemProvider {
     }
 
     private static String explicitStorageType(Map<String, String> properties) {
-        return FileSystemPropertyKeys.explicitProvider(properties);
+        return FileSystemPropertyKeys.explicitStorageType(properties);
     }
 }

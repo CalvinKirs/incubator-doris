@@ -49,6 +49,9 @@ public class OssFileSystemProvider implements FileSystemProvider {
         if ("true".equalsIgnoreCase(properties.get("fs.oss.support"))) {
             return true;
         }
+        if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+            return false;
+        }
         String endpoint = OssFileSystemProperties.bind(properties).toFileSystemKv()
                 .get(OssFileSystemProperties.CANONICAL_ENDPOINT);
         return endpoint != null && endpoint.contains("aliyuncs.com");
@@ -76,6 +79,6 @@ public class OssFileSystemProvider implements FileSystemProvider {
     }
 
     private static String explicitStorageType(Map<String, String> properties) {
-        return FileSystemPropertyKeys.explicitProvider(properties);
+        return FileSystemPropertyKeys.explicitStorageType(properties);
     }
 }

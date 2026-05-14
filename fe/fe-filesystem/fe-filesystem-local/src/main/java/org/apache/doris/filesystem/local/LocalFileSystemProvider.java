@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.local;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -31,6 +32,16 @@ public class LocalFileSystemProvider implements FileSystemProvider {
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        String storageType = FileSystemPropertyKeys.explicitStorageType(properties);
+        if (storageType != null) {
+            return "LOCAL".equalsIgnoreCase(storageType);
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.local.support"))) {
+            return true;
+        }
+        if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+            return false;
+        }
         String uri = properties.getOrDefault("uri", "");
         return uri.startsWith("file://") || uri.startsWith("local://");
     }

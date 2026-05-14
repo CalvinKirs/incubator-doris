@@ -24,6 +24,7 @@ import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Set;
@@ -40,7 +41,7 @@ import java.util.Set;
 public class S3FileSystemProvider implements FileSystemProvider {
 
     private static final Set<String> S3_COMPATIBLE_STORAGE_TYPES =
-            new HashSet<>(Arrays.asList("S3", "MINIO", "GCS"));
+            new HashSet<>(Arrays.asList("S3", "MINIO", "GCS", "GCP", "OZONE"));
 
     @Override
     public boolean supports(Map<String, String> properties) {
@@ -50,8 +51,12 @@ public class S3FileSystemProvider implements FileSystemProvider {
         }
         if ("true".equalsIgnoreCase(properties.get("fs.s3.support"))
                 || "true".equalsIgnoreCase(properties.get("fs.minio.support"))
-                || "true".equalsIgnoreCase(properties.get("fs.gcs.support"))) {
+                || "true".equalsIgnoreCase(properties.get("fs.gcs.support"))
+                || "true".equalsIgnoreCase(properties.get("fs.ozone.support"))) {
             return true;
+        }
+        if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+            return false;
         }
         S3FileSystemProperties boundProperties = S3FileSystemProperties.bind(properties);
         if (isKnownCloudSpecificEndpoint(boundProperties.toFileSystemKv().get(S3ObjStorage.PROP_ENDPOINT))) {
@@ -78,6 +83,15 @@ public class S3FileSystemProvider implements FileSystemProvider {
     }
 
     @Override
+    public Map<String, String> toStoragePropertiesKv(
+            Map<String, String> rawProperties, FileSystemProperties fileSystemProperties) {
+        Map<String, String> result = new HashMap<>(rawProperties);
+        result.putAll(fileSystemProperties.toFileSystemKv());
+        result.put(FileSystemPropertyKeys.STORAGE_TYPE, resolveStorageType(rawProperties));
+        return result;
+    }
+
+    @Override
     public String name() {
         return "S3";
     }
@@ -90,6 +104,23 @@ public class S3FileSystemProvider implements FileSystemProvider {
     }
 
     private static String explicitStorageType(Map<String, String> properties) {
-        return FileSystemPropertyKeys.explicitProvider(properties);
+        return FileSystemPropertyKeys.explicitStorageType(properties);
+    }
+
+    private static String resolveStorageType(Map<String, String> properties) {
+        String storageType = FileSystemPropertyKeys.explicitStorageType(properties);
+        if (storageType != null) {
+            return storageType;
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.minio.support"))) {
+            return "MINIO";
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.gcs.support"))) {
+            return "GCS";
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.ozone.support"))) {
+            return "OZONE";
+        }
+        return "S3";
     }
 }

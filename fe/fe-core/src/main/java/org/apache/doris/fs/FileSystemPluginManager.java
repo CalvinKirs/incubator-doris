@@ -46,7 +46,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * 1. ServiceLoader scan (classpath-based built-ins / test overrides)
  * 2. DirectoryPluginRuntimeManager scan (production plugin directories)
  *
- * <p>The first provider that returns {@code supports(props) == true} is used.
+ * <p>If {@code fs.provider/provider} is set, the provider name is matched directly.
+ * Otherwise the first provider that returns {@code supports(props) == true} is used.
  * Classpath providers have higher priority than directory-loaded providers.
  */
 public class FileSystemPluginManager {
@@ -124,12 +125,10 @@ public class FileSystemPluginManager {
      * @throws IOException if no provider supports the properties, or creation fails
      */
     public FileSystem createFileSystem(Map<String, String> properties) throws IOException {
-        for (FileSystemProvider provider : providers) {
-            if (provider.supports(properties)) {
-                FileSystemProperties fileSystemProperties = provider.bind(properties);
-                fileSystemProperties.validate();
-                return provider.create(fileSystemProperties);
-            }
+        for (FileSystemProvider provider : resolveProviders(properties)) {
+            FileSystemProperties fileSystemProperties = provider.bind(properties);
+            fileSystemProperties.validate();
+            return provider.create(fileSystemProperties);
         }
         throw new IOException("No FileSystemProvider supports the given properties: "
                 + properties.get(FileSystemPropertyKeys.STORAGE_TYPE)
@@ -140,13 +139,7 @@ public class FileSystemPluginManager {
      * Returns providers that can bind the given properties, preserving provider priority.
      */
     public List<FileSystemProvider> resolveProviders(Map<String, String> properties) {
-        List<FileSystemProvider> result = new ArrayList<>();
-        for (FileSystemProvider provider : providers) {
-            if (provider.supports(properties)) {
-                result.add(provider);
-            }
-        }
-        return result;
+        return FileSystemFactory.resolveProvidersFrom(providers, properties);
     }
 
     /** Registers a provider at highest priority. For testing overrides. */

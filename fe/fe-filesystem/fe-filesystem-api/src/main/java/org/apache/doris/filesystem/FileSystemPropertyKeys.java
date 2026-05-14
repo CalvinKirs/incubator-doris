@@ -28,16 +28,27 @@ public final class FileSystemPropertyKeys {
     private FileSystemPropertyKeys() {
     }
 
-    public static String explicitProvider(Map<String, String> properties) {
-        String provider = properties.get(STORAGE_TYPE);
-        if (hasText(provider)) {
-            return provider;
-        }
-        provider = properties.get(FS_PROVIDER);
+    public static String explicitStorageType(Map<String, String> properties) {
+        return properties.get(STORAGE_TYPE);
+    }
+
+    public static String explicitFactoryProvider(Map<String, String> properties) {
+        String provider = properties.get(FS_PROVIDER);
         if (hasText(provider)) {
             return provider;
         }
         return properties.get(LEGACY_PROVIDER);
+    }
+
+    public static boolean hasAnyExplicitFileSystemSupport(Map<String, String> properties) {
+        for (Map.Entry<String, String> entry : properties.entrySet()) {
+            String key = entry.getKey();
+            if (key.startsWith("fs.") && key.endsWith(".support")
+                    && "true".equalsIgnoreCase(entry.getValue())) {
+                return true;
+            }
+        }
+        return "true".equalsIgnoreCase(properties.get("oss.hdfs.enabled"));
     }
 
     private static boolean hasText(String value) {

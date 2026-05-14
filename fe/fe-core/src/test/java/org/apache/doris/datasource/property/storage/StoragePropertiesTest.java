@@ -25,12 +25,15 @@ import org.apache.doris.filesystem.spi.FileSystemProvider;
 import org.apache.doris.fs.FileSystemFactory;
 import org.apache.doris.fs.FileSystemPluginManager;
 
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.Assertions;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -50,6 +53,28 @@ import java.util.stream.Collectors;
  * This prevents cross-provider false-positive matches.
  */
 public class StoragePropertiesTest {
+
+    @BeforeEach
+    public void setUpFileSystemProviders() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(new TestStorageProvider(
+                "MINIO", StorageProperties.FS_MINIO_SUPPORT, "minio.endpoint", null));
+        manager.registerProvider(new TestStorageProvider(
+                "COS", StorageProperties.FS_COS_SUPPORT, "cos.endpoint", "myqcloud.com"));
+        manager.registerProvider(new TestStorageProvider(
+                "OBS", StorageProperties.FS_OBS_SUPPORT, "obs.endpoint", "myhuaweicloud.com"));
+        manager.registerProvider(new TestStorageProvider(
+                "S3", StorageProperties.FS_S3_SUPPORT, "s3.endpoint", "amazonaws.com"));
+        manager.registerProvider(new TestStorageProvider(
+                "OSS", StorageProperties.FS_OSS_SUPPORT, "oss.endpoint", "aliyuncs.com"));
+        manager.registerProvider(new TestHdfsProvider());
+        FileSystemFactory.initPluginManager(manager);
+    }
+
+    @AfterEach
+    public void tearDownFileSystemProviders() {
+        FileSystemFactory.initPluginManager(null);
+    }
 
     // ========================================================================================
     // 1. Backward compatibility: no explicit fs.xx.support → guessIsMe still works
@@ -421,6 +446,90 @@ public class StoragePropertiesTest {
         return all.stream()
                 .map(Object::getClass)
                 .collect(Collectors.toList());
+    }
+
+    private static class TestStorageProvider implements FileSystemProvider {
+        private final String storageType;
+        private final String supportKey;
+        private final String endpointKey;
+        private final String endpointToken;
+
+        private TestStorageProvider(
+                String storageType, String supportKey, String endpointKey, String endpointToken) {
+            this.storageType = storageType;
+            this.supportKey = supportKey;
+            this.endpointKey = endpointKey;
+            this.endpointToken = endpointToken;
+        }
+
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            String explicitStorageType = FileSystemPropertyKeys.explicitStorageType(properties);
+            if (explicitStorageType != null) {
+                return storageType.equalsIgnoreCase(explicitStorageType);
+            }
+            if ("true".equalsIgnoreCase(properties.get(supportKey))) {
+                return true;
+            }
+            if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+                return false;
+            }
+            String endpoint = properties.get(endpointKey);
+            return endpointToken != null && endpoint != null && endpoint.contains(endpointToken);
+        }
+
+        @Override
+        public FileSystemProperties bind(Map<String, String> properties) {
+            Map<String, String> kv = new HashMap<>(properties);
+            kv.put(FileSystemPropertyKeys.STORAGE_TYPE, storageType);
+            String prefix = storageType.toLowerCase(Locale.ROOT);
+            kv.putIfAbsent(prefix + ".region", "us-east-1");
+            return FileSystemProperties.of(kv);
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return storageType;
+        }
+    }
+
+    private static class TestHdfsProvider implements FileSystemProvider {
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            String explicitStorageType = FileSystemPropertyKeys.explicitStorageType(properties);
+            if (explicitStorageType != null) {
+                return "HDFS".equalsIgnoreCase(explicitStorageType);
+            }
+            if ("true".equalsIgnoreCase(properties.get(StorageProperties.FS_HDFS_SUPPORT))) {
+                return true;
+            }
+            if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+                return false;
+            }
+            return properties.containsKey("HDFS_URI") || properties.containsKey("fs.defaultFS");
+        }
+
+        @Override
+        public FileSystemProperties bind(Map<String, String> properties) {
+            Map<String, String> kv = new HashMap<>(properties);
+            kv.put(FileSystemPropertyKeys.STORAGE_TYPE, "HDFS");
+            return FileSystemProperties.of(kv);
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return "HDFS";
+        }
     }
 
     private static class CanonicalS3Provider implements FileSystemProvider {

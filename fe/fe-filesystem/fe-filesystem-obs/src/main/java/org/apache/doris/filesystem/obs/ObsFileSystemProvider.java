@@ -49,6 +49,9 @@ public class ObsFileSystemProvider implements FileSystemProvider {
         if ("true".equalsIgnoreCase(properties.get("fs.obs.support"))) {
             return true;
         }
+        if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+            return false;
+        }
         String endpoint = ObsFileSystemProperties.bind(properties).toFileSystemKv()
                 .get(ObsFileSystemProperties.CANONICAL_ENDPOINT);
         return endpoint != null && endpoint.contains("myhuaweicloud.com");
@@ -76,6 +79,6 @@ public class ObsFileSystemProvider implements FileSystemProvider {
     }
 
     private static String explicitStorageType(Map<String, String> properties) {
-        return FileSystemPropertyKeys.explicitProvider(properties);
+        return FileSystemPropertyKeys.explicitStorageType(properties);
     }
 }

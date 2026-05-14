@@ -18,10 +18,12 @@
 package org.apache.doris.filesystem.hdfs;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemProperties;
 import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 
@@ -32,13 +34,24 @@ import java.util.Set;
 public class HdfsFileSystemProvider implements FileSystemProvider {
 
     public static final Set<String> SUPPORTED_SCHEMES = Set.of("hdfs", "viewfs", "ofs", "jfs", "oss");
+    private static final String STORAGE_TYPE_HDFS = "HDFS";
+    private static final String STORAGE_TYPE_OSS_HDFS = "OSS_HDFS";
 
     @Override
     public boolean supports(Map<String, String> properties) {
-        // Authoritative match: StoragePropertiesConverter always sets this key for HDFS storage,
-        // including Hive catalog properties that may not carry explicit HDFS connection keys.
-        if ("HDFS".equals(properties.get(FileSystemPropertyKeys.STORAGE_TYPE))) {
+        String storageType = FileSystemPropertyKeys.explicitStorageType(properties);
+        if (storageType != null) {
+            String normalizedStorageType = normalizeStorageType(storageType);
+            return STORAGE_TYPE_HDFS.equals(normalizedStorageType)
+                    || STORAGE_TYPE_OSS_HDFS.equals(normalizedStorageType);
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.hdfs.support"))
+                || "true".equalsIgnoreCase(properties.get("fs.oss-hdfs.support"))
+                || "true".equalsIgnoreCase(properties.get("oss.hdfs.enabled"))) {
             return true;
+        }
+        if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+            return false;
         }
         String uri = properties.get("HDFS_URI");
         if (uri == null) {
@@ -61,7 +74,35 @@ public class HdfsFileSystemProvider implements FileSystemProvider {
     }
 
     @Override
+    public Map<String, String> toStoragePropertiesKv(
+            Map<String, String> rawProperties, FileSystemProperties fileSystemProperties) {
+        Map<String, String> result = new HashMap<>(rawProperties);
+        result.putAll(fileSystemProperties.toFileSystemKv());
+        result.put(FileSystemPropertyKeys.STORAGE_TYPE, resolveStorageType(rawProperties));
+        return result;
+    }
+
+    @Override
     public String name() {
-        return "HDFS";
+        return STORAGE_TYPE_HDFS;
+    }
+
+    private static String resolveStorageType(Map<String, String> properties) {
+        String storageType = FileSystemPropertyKeys.explicitStorageType(properties);
+        if (STORAGE_TYPE_OSS_HDFS.equals(normalizeStorageType(storageType))) {
+            return STORAGE_TYPE_OSS_HDFS;
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.oss-hdfs.support"))
+                || "true".equalsIgnoreCase(properties.get("oss.hdfs.enabled"))) {
+            return STORAGE_TYPE_OSS_HDFS;
+        }
+        return STORAGE_TYPE_HDFS;
+    }
+
+    private static String normalizeStorageType(String storageType) {
+        if (storageType == null) {
+            return "";
+        }
+        return storageType.replace('-', '_').toUpperCase();
     }
 }

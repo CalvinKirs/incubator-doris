@@ -34,19 +34,26 @@ class StoragePropertiesConverterTest {
 
     @Test
     void toMap_keepsConcreteObjectStorageTypeForProviderSelection() {
-        Map<String, String> props = new HashMap<>();
-        props.put("fs.cos.support", "true");
-        props.put("cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com");
-        props.put("cos.region", "ap-guangzhou");
-        props.put("cos.access_key", "ak");
-        props.put("cos.secret_key", "sk");
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(new CanonicalCosProvider());
+        FileSystemFactory.initPluginManager(manager);
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put("fs.cos.support", "true");
+            props.put("cos.endpoint", "https://cos.ap-guangzhou.myqcloud.com");
+            props.put("cos.region", "ap-guangzhou");
+            props.put("cos.access_key", "ak");
+            props.put("cos.secret_key", "sk");
 
-        StorageProperties storageProperties = StorageProperties.createPrimary(props);
-        Map<String, String> fileSystemProperties = StoragePropertiesConverter.toMap(storageProperties);
+            StorageProperties storageProperties = StorageProperties.createPrimary(props);
+            Map<String, String> fileSystemProperties = StoragePropertiesConverter.toMap(storageProperties);
 
-        Assertions.assertEquals("COS", fileSystemProperties.get(FileSystemPropertyKeys.STORAGE_TYPE));
-        Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com",
-                fileSystemProperties.get("AWS_ENDPOINT"));
+            Assertions.assertEquals("COS", fileSystemProperties.get(FileSystemPropertyKeys.STORAGE_TYPE));
+            Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com",
+                    fileSystemProperties.get("AWS_ENDPOINT"));
+        } finally {
+            FileSystemFactory.initPluginManager(null);
+        }
     }
 
     @Test
@@ -68,6 +75,35 @@ class StoragePropertiesConverterTest {
             Assertions.assertFalse(fileSystemProperties.containsKey("AWS_ACCESS_KEY"));
         } finally {
             FileSystemFactory.initPluginManager(null);
+        }
+    }
+
+    private static class CanonicalCosProvider implements FileSystemProvider {
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            return "true".equalsIgnoreCase(properties.get("fs.cos.support"))
+                    || "COS".equalsIgnoreCase(properties.get(FileSystemPropertyKeys.STORAGE_TYPE));
+        }
+
+        @Override
+        public FileSystemProperties bind(Map<String, String> properties) {
+            Map<String, String> kv = new HashMap<>(properties);
+            kv.put(FileSystemPropertyKeys.STORAGE_TYPE, "COS");
+            kv.put("AWS_ENDPOINT", properties.get("cos.endpoint"));
+            kv.put("AWS_REGION", properties.get("cos.region"));
+            kv.put("AWS_ACCESS_KEY", properties.get("cos.access_key"));
+            kv.put("AWS_SECRET_KEY", properties.get("cos.secret_key"));
+            return FileSystemProperties.of(kv);
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return "COS";
         }
     }
 

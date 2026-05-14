@@ -18,6 +18,7 @@
 package org.apache.doris.filesystem.azure;
 
 import org.apache.doris.filesystem.FileSystem;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
@@ -49,6 +50,16 @@ public class AzureFileSystemProvider implements FileSystemProvider {
 
     @Override
     public boolean supports(Map<String, String> properties) {
+        String storageType = FileSystemPropertyKeys.explicitStorageType(properties);
+        if (storageType != null) {
+            return "AZURE".equalsIgnoreCase(storageType);
+        }
+        if ("true".equalsIgnoreCase(properties.get("fs.azure.support"))) {
+            return true;
+        }
+        if (FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(properties)) {
+            return false;
+        }
         if (properties.containsKey(AzureObjStorage.PROP_ACCOUNT_NAME)) {
             return true;
         }

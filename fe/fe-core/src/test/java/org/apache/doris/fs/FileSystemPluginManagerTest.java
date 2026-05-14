@@ -19,6 +19,7 @@ package org.apache.doris.fs;
 
 import org.apache.doris.filesystem.FileSystem;
 import org.apache.doris.filesystem.FileSystemProperties;
+import org.apache.doris.filesystem.FileSystemPropertyKeys;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import org.junit.jupiter.api.Assertions;
@@ -27,6 +28,7 @@ import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 class FileSystemPluginManagerTest {
@@ -45,6 +47,41 @@ class FileSystemPluginManagerTest {
         Assertions.assertTrue(provider.bound);
         Assertions.assertTrue(provider.validated);
         Assertions.assertTrue(provider.createdFromBoundProperties);
+    }
+
+    @Test
+    void resolveProviders_usesExplicitFactoryProviderWithoutCallingSupports() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        TrackingProvider s3 = new TrackingProvider("S3", false);
+        TrackingProvider custom = new TrackingProvider("S3-CUSTOM", false);
+        manager.registerProvider(s3);
+        manager.registerProvider(custom);
+        Map<String, String> properties = new HashMap<>();
+        properties.put(FileSystemPropertyKeys.FS_PROVIDER, "S3-CUSTOM");
+
+        List<FileSystemProvider> providers = manager.resolveProviders(properties);
+
+        Assertions.assertEquals(1, providers.size());
+        Assertions.assertSame(custom, providers.get(0));
+        Assertions.assertFalse(s3.supportsCalled);
+        Assertions.assertFalse(custom.supportsCalled);
+    }
+
+    @Test
+    void resolveProviders_withoutFactoryProviderFallsBackToSupports() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        TrackingProvider unsupported = new TrackingProvider("S3", false);
+        TrackingProvider supported = new TrackingProvider("OSS", true);
+        manager.registerProvider(unsupported);
+        manager.registerProvider(supported);
+        Map<String, String> properties = new HashMap<>();
+
+        List<FileSystemProvider> providers = manager.resolveProviders(properties);
+
+        Assertions.assertEquals(1, providers.size());
+        Assertions.assertSame(supported, providers.get(0));
+        Assertions.assertTrue(unsupported.supportsCalled);
+        Assertions.assertTrue(supported.supportsCalled);
     }
 
     private static class BindingProvider implements FileSystemProvider {
@@ -83,6 +120,33 @@ class FileSystemPluginManagerTest {
         public FileSystem create(FileSystemProperties properties) {
             createdFromBoundProperties = true;
             return fileSystem;
+        }
+    }
+
+    private static class TrackingProvider implements FileSystemProvider {
+        private final String name;
+        private final boolean supported;
+        private boolean supportsCalled;
+
+        private TrackingProvider(String name, boolean supported) {
+            this.name = name;
+            this.supported = supported;
+        }
+
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            supportsCalled = true;
+            return supported;
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return name;
         }
     }
 }
