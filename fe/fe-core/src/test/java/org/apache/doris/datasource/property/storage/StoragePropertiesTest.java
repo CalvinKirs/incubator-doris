@@ -93,12 +93,12 @@ public class StoragePropertiesTest {
         props.put("oss.secret_key", "sk");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         // guessIsMe should detect OSS; default HDFS is always prepended
-        Assertions.assertTrue(types.contains(HdfsProperties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.HDFS),
                 "Default HDFS should always be present");
-        Assertions.assertTrue(types.contains(OSSProperties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.OSS),
                 "OSS should be detected via guessIsMe when no explicit fs.xx.support is set");
     }
 
@@ -115,9 +115,9 @@ public class StoragePropertiesTest {
         props.put("s3.region", "us-east-1");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
-        Assertions.assertTrue(types.contains(S3Properties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.S3),
                 "S3 should be detected via guessIsMe when no explicit fs.xx.support is set");
     }
 
@@ -146,14 +146,14 @@ public class StoragePropertiesTest {
         props.put("s3.endpoint", "s3.amazonaws.com");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         Assertions.assertEquals(1, all.size(),
                 "Should only contain OSS — no default HDFS in explicit mode");
-        Assertions.assertTrue(types.contains(OSSProperties.class));
-        Assertions.assertFalse(types.contains(S3Properties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.OSS));
+        Assertions.assertFalse(types.contains(StorageProperties.Type.S3),
                 "S3 should NOT be matched when fs.oss.support is explicitly set");
-        Assertions.assertFalse(types.contains(HdfsProperties.class),
+        Assertions.assertFalse(types.contains(StorageProperties.Type.HDFS),
                 "Default HDFS should NOT be added in explicit mode");
     }
 
@@ -179,15 +179,15 @@ public class StoragePropertiesTest {
         props.put("oss.endpoint", "oss-cn-hangzhou.aliyuncs.com");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         Assertions.assertEquals(1, all.size(),
                 "Should only contain S3 — no default HDFS in explicit mode");
-        Assertions.assertTrue(types.contains(S3Properties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.S3),
                 "S3 should be matched via explicit fs.s3.support");
-        Assertions.assertFalse(types.contains(OSSProperties.class),
+        Assertions.assertFalse(types.contains(StorageProperties.Type.OSS),
                 "OSS should NOT be matched when fs.s3.support is explicitly set");
-        Assertions.assertFalse(types.contains(HdfsProperties.class),
+        Assertions.assertFalse(types.contains(StorageProperties.Type.HDFS),
                 "Default HDFS should NOT be added in explicit mode");
     }
 
@@ -217,17 +217,17 @@ public class StoragePropertiesTest {
         props.put("cos.endpoint", "cos.ap-guangzhou.myqcloud.com");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         Assertions.assertEquals(2, all.size(),
                 "Should only contain OSS + S3, no default HDFS and no COS");
-        Assertions.assertTrue(types.contains(OSSProperties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.OSS),
                 "OSS should be matched via explicit flag");
-        Assertions.assertTrue(types.contains(S3Properties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.S3),
                 "S3 should be matched via explicit flag");
-        Assertions.assertFalse(types.contains(COSProperties.class),
+        Assertions.assertFalse(types.contains(StorageProperties.Type.COS),
                 "COS should NOT be matched — no fs.cos.support=true, and guessIsMe is disabled");
-        Assertions.assertFalse(types.contains(HdfsProperties.class),
+        Assertions.assertFalse(types.contains(StorageProperties.Type.HDFS),
                 "Default HDFS should NOT be added in explicit mode");
     }
 
@@ -254,7 +254,7 @@ public class StoragePropertiesTest {
         // HDFS is first in PROVIDERS list, but without fs.hdfs.support and guessIsMe disabled,
         // it won't match. S3 should be the first match via its explicit flag.
         StorageProperties primary = StorageProperties.createPrimary(props);
-        Assertions.assertInstanceOf(S3Properties.class, primary,
+        Assertions.assertEquals(StorageProperties.Type.S3, primary.getType(),
                 "createPrimary should return S3 (first explicit match), not OSS via guessIsMe");
     }
 
@@ -270,11 +270,33 @@ public class StoragePropertiesTest {
 
             StorageProperties primary = StorageProperties.createPrimary(props);
 
-            Assertions.assertInstanceOf(S3Properties.class, primary);
+            Assertions.assertInstanceOf(ObjectStorageProperties.class, primary);
             Assertions.assertEquals("S3-CUSTOM", primary.getFileSystemProviderName());
             Assertions.assertEquals("https://custom.example.com",
                     primary.getFileSystemProperties().toFileSystemKv().get("s3.endpoint"));
-            Assertions.assertEquals("https://custom.example.com", ((S3Properties) primary).getEndpoint());
+            Assertions.assertEquals("https://custom.example.com",
+                    ((ObjectStorageProperties) primary).getEndpoint());
+        } finally {
+            FileSystemFactory.initPluginManager(null);
+        }
+    }
+
+    @Test
+    public void testCreatePrimaryDoesNotRequireLegacyStoragePropertiesCreator() {
+        FileSystemPluginManager manager = new FileSystemPluginManager();
+        manager.registerProvider(new NativeOnlyProvider());
+        FileSystemFactory.initPluginManager(manager);
+        try {
+            Map<String, String> props = new HashMap<>();
+            props.put(StorageProperties.FS_PROVIDER, "NATIVE-ONLY");
+            props.put("native.endpoint", "https://native.example.com");
+
+            StorageProperties primary = StorageProperties.createPrimary(props);
+
+            Assertions.assertEquals(StorageProperties.Type.UNKNOWN, primary.getType());
+            Assertions.assertEquals("NATIVE-ONLY", primary.getFileSystemProviderName());
+            Assertions.assertEquals("https://native.example.com",
+                    primary.getBackendConfigProperties().get("AWS_ENDPOINT"));
         } finally {
             FileSystemFactory.initPluginManager(null);
         }
@@ -327,7 +349,7 @@ public class StoragePropertiesTest {
 
         Assertions.assertEquals(1, all.size(),
                 "Should only contain OSS, no default HDFS in explicit mode");
-        Assertions.assertInstanceOf(OSSProperties.class, all.get(0));
+        Assertions.assertEquals(StorageProperties.Type.OSS, all.get(0).getType());
     }
 
     /**
@@ -344,13 +366,13 @@ public class StoragePropertiesTest {
         props.put("oss.secret_key", "sk");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         Assertions.assertEquals(2, all.size(),
                 "Should contain HDFS (explicit) + OSS");
-        Assertions.assertTrue(types.contains(HdfsProperties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.HDFS),
                 "HDFS should be present because fs.hdfs.support=true was explicitly set");
-        Assertions.assertTrue(types.contains(OSSProperties.class));
+        Assertions.assertTrue(types.contains(StorageProperties.Type.OSS));
     }
 
     // ========================================================================================
@@ -370,11 +392,11 @@ public class StoragePropertiesTest {
         props.put("oss.secret_key", "sk");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         // fs.oss.support=false means no explicit flag is truly set,
         // so guessIsMe should still work and detect OSS via endpoint
-        Assertions.assertTrue(types.contains(OSSProperties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.OSS),
                 "OSS should still be detected via guessIsMe when fs.oss.support=false");
     }
 
@@ -404,15 +426,15 @@ public class StoragePropertiesTest {
         props.put("iceberg.catalog.type", "rest");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         // Only OSS should be present — no default HDFS, no false positives
         Assertions.assertEquals(1, all.size(),
                 "DLF scenario: should only have OSS, no default HDFS and no false positives");
-        Assertions.assertTrue(types.contains(OSSProperties.class));
-        Assertions.assertFalse(types.contains(HdfsProperties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.OSS));
+        Assertions.assertFalse(types.contains(StorageProperties.Type.HDFS),
                 "Default HDFS should not appear in explicit mode");
-        Assertions.assertFalse(types.contains(S3Properties.class),
+        Assertions.assertFalse(types.contains(StorageProperties.Type.S3),
                 "S3 should not appear in DLF OSS scenario");
     }
 
@@ -430,11 +452,11 @@ public class StoragePropertiesTest {
         props.put("s3.region", "minio");
 
         List<StorageProperties> all = StorageProperties.createAll(props);
-        List<Class<?>> types = toTypeList(all);
+        List<StorageProperties.Type> types = toStorageTypeList(all);
 
         // fs.oss.support=false means no explicit flag is truly set,
         // so guessIsMe should still work and detect OSS via endpoint
-        Assertions.assertTrue(types.contains(MinioProperties.class),
+        Assertions.assertTrue(types.contains(StorageProperties.Type.MINIO),
                 "Minio should be created when fs.minio.support=true");
     }
 
@@ -442,9 +464,9 @@ public class StoragePropertiesTest {
     // Helper
     // ========================================================================================
 
-    private static List<Class<?>> toTypeList(List<StorageProperties> all) {
+    private static List<StorageProperties.Type> toStorageTypeList(List<StorageProperties> all) {
         return all.stream()
-                .map(Object::getClass)
+                .map(StorageProperties::getType)
                 .collect(Collectors.toList());
     }
 
@@ -586,6 +608,38 @@ public class StoragePropertiesTest {
         @Override
         public String name() {
             return "HDFS";
+        }
+    }
+
+    private static class NativeOnlyProvider implements FileSystemProvider {
+        @Override
+        public boolean supports(Map<String, String> properties) {
+            return "NATIVE-ONLY".equalsIgnoreCase(properties.get(StorageProperties.FS_PROVIDER));
+        }
+
+        @Override
+        public FileSystemProperties bind(Map<String, String> properties) {
+            Map<String, String> kv = new HashMap<>();
+            kv.put(FileSystemPropertyKeys.STORAGE_TYPE, "NATIVE_ONLY");
+            kv.put("AWS_ENDPOINT", properties.get("native.endpoint"));
+            kv.put("AWS_REGION", "us-east-1");
+            kv.put("use_path_style", "false");
+            return FileSystemProperties.of(kv);
+        }
+
+        @Override
+        public FileSystem create(Map<String, String> properties) throws IOException {
+            throw new UnsupportedOperationException();
+        }
+
+        @Override
+        public String name() {
+            return "NATIVE-ONLY";
+        }
+
+        @Override
+        public String storageType() {
+            return "NATIVE_ONLY";
         }
     }
 

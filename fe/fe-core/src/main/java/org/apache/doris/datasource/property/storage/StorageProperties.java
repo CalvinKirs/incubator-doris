@@ -26,6 +26,7 @@ import org.apache.doris.foundation.property.ConnectorProperty;
 import org.apache.doris.foundation.property.StoragePropertiesException;
 import org.apache.doris.fs.FileSystemFactory;
 
+import com.google.common.collect.ImmutableSet;
 import lombok.Getter;
 import org.apache.commons.lang3.BooleanUtils;
 import org.apache.commons.lang3.StringUtils;
@@ -37,7 +38,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.function.Function;
+import java.util.regex.Pattern;
 
 public abstract class StorageProperties extends ConnectionProperties {
 
@@ -183,9 +184,6 @@ public abstract class StorageProperties extends ConnectionProperties {
         throw new StoragePropertiesException("No supported storage type found. Please check your configuration.");
     }
 
-    private static final Map<Type, Function<Map<String, String>, StorageProperties>> STORAGE_PROPERTIES_CREATORS =
-            createStoragePropertiesCreators();
-
     protected StorageProperties(Type type, Map<String, String> origProps) {
         super(origProps);
         this.type = type;
@@ -244,33 +242,32 @@ public abstract class StorageProperties extends ConnectionProperties {
         fileSystemProperties.validate();
         Map<String, String> boundProps = provider.toStoragePropertiesKv(origProps, fileSystemProperties);
         String storageType = boundProps.getOrDefault(FileSystemPropertyKeys.STORAGE_TYPE, provider.storageType());
-        StorageProperties storageProperties = createFromStorageType(storageType, boundProps);
-        if (storageProperties == null) {
-            throw new StoragePropertiesException("FileSystem provider " + provider.name()
-                    + " does not expose a supported storage properties type.");
-        }
+        StorageProperties storageProperties = createProviderBackedStorageProperties(provider, storageType, boundProps);
         storageProperties.bindFileSystemProperties(provider, fileSystemProperties);
         storageProperties.initNormalizeAndCheckProps();
         storageProperties.buildHadoopStorageConfig();
         return storageProperties;
     }
 
-    private static StorageProperties createFromStorageType(String storageType, Map<String, String> props) {
-        if (StringUtils.isBlank(storageType)) {
-            return null;
-        }
+    private static StorageProperties createProviderBackedStorageProperties(
+            FileSystemProvider provider, String storageType, Map<String, String> props) {
         Type type = findStorageType(storageType);
         if (type == null) {
-            return null;
+            type = Type.UNKNOWN;
         }
-        Function<Map<String, String>, StorageProperties> creator = STORAGE_PROPERTIES_CREATORS.get(type);
-        if (creator == null) {
-            return null;
+        if (isObjectStorageProperties(type, props)) {
+            return new ProviderBackedObjectStorageProperties(type, provider.name(), props);
         }
-        return creator.apply(props);
+        if (type == Type.HDFS) {
+            return new HdfsProperties(props);
+        }
+        return new ProviderBackedStorageProperties(type, provider.name(), props);
     }
 
     private static Type findStorageType(String storageType) {
+        if (StringUtils.isBlank(storageType)) {
+            return null;
+        }
         String normalizedStorageType = normalizeProviderName(storageType);
         for (Type type : Type.values()) {
             if (type.name().equals(normalizedStorageType)) {
@@ -280,22 +277,20 @@ public abstract class StorageProperties extends ConnectionProperties {
         return null;
     }
 
-    private static Map<Type, Function<Map<String, String>, StorageProperties>> createStoragePropertiesCreators() {
-        Map<Type, Function<Map<String, String>, StorageProperties>> creators = new HashMap<>();
-        creators.put(Type.HDFS, HdfsProperties::new);
-        creators.put(Type.S3, S3Properties::new);
-        creators.put(Type.OSS, OSSProperties::new);
-        creators.put(Type.OBS, OBSProperties::new);
-        creators.put(Type.COS, COSProperties::new);
-        creators.put(Type.GCS, GCSProperties::new);
-        creators.put(Type.OSS_HDFS, OSSHdfsProperties::new);
-        creators.put(Type.MINIO, MinioProperties::new);
-        creators.put(Type.OZONE, OzoneProperties::new);
-        creators.put(Type.AZURE, AzureProperties::new);
-        creators.put(Type.BROKER, BrokerProperties::new);
-        creators.put(Type.LOCAL, LocalProperties::new);
-        creators.put(Type.HTTP, HttpProperties::new);
-        return creators;
+    private static boolean isObjectStorageProperties(Type type, Map<String, String> props) {
+        switch (type) {
+            case S3:
+            case OSS:
+            case OBS:
+            case COS:
+            case GCS:
+            case MINIO:
+            case OZONE:
+                return true;
+            default:
+                return StringUtils.isNotBlank(props.get("AWS_ENDPOINT"))
+                        || StringUtils.isNotBlank(props.get("AWS_REGION"));
+        }
     }
 
     private static boolean hasAnyExplicitProvider(Map<String, String> props) {
@@ -325,6 +320,266 @@ public abstract class StorageProperties extends ConnectionProperties {
      */
     private static boolean hasAnyExplicitFsSupport(Map<String, String> props) {
         return FileSystemPropertyKeys.hasAnyExplicitFileSystemSupport(props);
+    }
+
+    private static class ProviderBackedStorageProperties extends StorageProperties {
+        protected final String providerName;
+
+        private ProviderBackedStorageProperties(Type type, String providerName, Map<String, String> props) {
+            super(type, props);
+            this.providerName = providerName;
+        }
+
+        @Override
+        public void initNormalizeAndCheckProps() {
+            // Provider-owned FileSystemProperties has already been bound and validated.
+        }
+
+        @Override
+        public Map<String, String> getBackendConfigProperties() {
+            return origProps;
+        }
+
+        @Override
+        public String validateAndNormalizeUri(String url) throws UserException {
+            return url;
+        }
+
+        @Override
+        public String validateAndGetUri(Map<String, String> loadProps) throws UserException {
+            return loadProps.get(URI_KEY);
+        }
+
+        @Override
+        public String getStorageName() {
+            return providerName;
+        }
+
+        @Override
+        protected void initializeHadoopStorageConfig() {
+            hadoopStorageConfig = new Configuration();
+            origProps.forEach(hadoopStorageConfig::set);
+        }
+
+        @Override
+        protected Set<String> schemas() {
+            return ImmutableSet.of();
+        }
+    }
+
+    private static class ProviderBackedObjectStorageProperties extends AbstractS3CompatibleProperties {
+        private static final Set<Pattern> ENDPOINT_PATTERNS = ImmutableSet.of(
+                Pattern.compile("^(?:https?://)?s3[.-]([a-z0-9-]+)\\.amazonaws\\.com(?:/.*)?$",
+                        Pattern.CASE_INSENSITIVE),
+                Pattern.compile("^(?:https?://)?oss-([a-z0-9-]+?)(?:-internal)?\\.aliyuncs\\.com(?:/.*)?$",
+                        Pattern.CASE_INSENSITIVE),
+                Pattern.compile("^(?:https?://)?cos\\.([a-z0-9-]+)\\.myqcloud\\.com(?:/.*)?$",
+                        Pattern.CASE_INSENSITIVE),
+                Pattern.compile("^(?:https?://)?obs\\.([a-z0-9-]+)\\.myhuaweicloud\\.com(?:/.*)?$",
+                        Pattern.CASE_INSENSITIVE));
+
+        private final String providerName;
+        private String endpoint;
+        private String region;
+        private String accessKey;
+        private String secretKey;
+        private String sessionToken;
+        private String maxConnections;
+        private String requestTimeoutS;
+        private String connectionTimeoutS;
+        private String usePathStyle;
+        private String forceParsingByStandardUrl;
+
+        private ProviderBackedObjectStorageProperties(Type type, String providerName, Map<String, String> props) {
+            super(type, props);
+            this.providerName = providerName;
+            hydrateFromProperties();
+        }
+
+        @Override
+        public void initNormalizeAndCheckProps() {
+            hydrateFromProperties();
+            super.initNormalizeAndCheckProps();
+        }
+
+        private void hydrateFromProperties() {
+            String prefix = storagePrefix();
+            endpoint = firstNonBlank(origProps.get("AWS_ENDPOINT"), origProps.get(prefix + ".endpoint"),
+                    origProps.get("s3.endpoint"), origProps.get("endpoint"));
+            region = firstNonBlank(origProps.get("AWS_REGION"), origProps.get(prefix + ".region"),
+                    origProps.get("s3.region"), defaultRegion());
+            accessKey = firstNonBlank(origProps.get("AWS_ACCESS_KEY"), origProps.get(prefix + ".access_key"),
+                    origProps.get(prefix + ".access-key-id"), origProps.get("s3.access_key"),
+                    origProps.get("s3.access-key-id"));
+            secretKey = firstNonBlank(origProps.get("AWS_SECRET_KEY"), origProps.get(prefix + ".secret_key"),
+                    origProps.get(prefix + ".secret-access-key"), origProps.get("s3.secret_key"),
+                    origProps.get("s3.secret-access-key"));
+            sessionToken = firstNonBlank(origProps.get("AWS_TOKEN"), origProps.get(prefix + ".session_token"),
+                    origProps.get(prefix + ".session-token"), origProps.get("s3.session_token"),
+                    origProps.get("s3.session-token"));
+            maxConnections = firstNonBlank(origProps.get("AWS_MAX_CONNECTIONS"),
+                    origProps.get(prefix + ".connection.maximum"), origProps.get("s3.connection.maximum"), "50");
+            requestTimeoutS = firstNonBlank(origProps.get("AWS_REQUEST_TIMEOUT_MS"),
+                    origProps.get(prefix + ".connection.request.timeout"),
+                    origProps.get("s3.connection.request.timeout"), "3000");
+            connectionTimeoutS = firstNonBlank(origProps.get("AWS_CONNECTION_TIMEOUT_MS"),
+                    origProps.get(prefix + ".connection.timeout"), origProps.get("s3.connection.timeout"), "1000");
+            usePathStyle = firstNonBlank(origProps.get("use_path_style"), origProps.get(prefix + ".use_path_style"),
+                    origProps.get(prefix + ".path-style-access"), origProps.get("s3.path-style-access"), "false");
+            forceParsingByStandardUrl = firstNonBlank(origProps.get("force_parsing_by_standard_uri"), "false");
+        }
+
+        private String storagePrefix() {
+            switch (type) {
+                case OSS:
+                    return "oss";
+                case COS:
+                    return "cos";
+                case OBS:
+                    return "obs";
+                case GCS:
+                    return "gs";
+                case MINIO:
+                    return "minio";
+                case OZONE:
+                    return "ozone";
+                default:
+                    return "s3";
+            }
+        }
+
+        private String defaultRegion() {
+            if (type == Type.GCS) {
+                return "us-east1";
+            }
+            if (type == Type.MINIO || type == Type.OZONE) {
+                return "us-east-1";
+            }
+            return "";
+        }
+
+        private static String firstNonBlank(String... values) {
+            for (String value : values) {
+                if (StringUtils.isNotBlank(value)) {
+                    return value;
+                }
+            }
+            return "";
+        }
+
+        @Override
+        public Map<String, String> getBackendConfigProperties() {
+            Map<String, String> backendProperties = generateBackendS3Configuration();
+            putIfPresent(backendProperties, "AWS_ROLE_ARN", origProps.get("AWS_ROLE_ARN"));
+            putIfPresent(backendProperties, "AWS_EXTERNAL_ID", origProps.get("AWS_EXTERNAL_ID"));
+            return backendProperties;
+        }
+
+        private static void putIfPresent(Map<String, String> properties, String key, String value) {
+            if (StringUtils.isNotBlank(value)) {
+                properties.put(key, value);
+            }
+        }
+
+        @Override
+        protected Set<Pattern> endpointPatterns() {
+            return ENDPOINT_PATTERNS;
+        }
+
+        @Override
+        protected String getEndpointFromRegion() {
+            if (StringUtils.isNotBlank(endpoint)) {
+                return endpoint;
+            }
+            if (type == Type.GCS) {
+                return "https://storage.googleapis.com";
+            }
+            if (type == Type.S3 && StringUtils.isNotBlank(region)) {
+                return "https://s3." + region + ".amazonaws.com";
+            }
+            return "";
+        }
+
+        @Override
+        public String getStorageName() {
+            return providerName;
+        }
+
+        @Override
+        protected Set<String> schemas() {
+            switch (type) {
+                case OSS:
+                    return ImmutableSet.of("oss");
+                case COS:
+                    return ImmutableSet.of("cos", "cosn");
+                case OBS:
+                    return ImmutableSet.of("obs");
+                case GCS:
+                    return ImmutableSet.of("gs");
+                default:
+                    return ImmutableSet.of("s3", "s3a", "s3n");
+            }
+        }
+
+        @Override
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        @Override
+        public String getRegion() {
+            return region;
+        }
+
+        @Override
+        public String getAccessKey() {
+            return accessKey;
+        }
+
+        @Override
+        public String getSecretKey() {
+            return secretKey;
+        }
+
+        @Override
+        public void setEndpoint(String endpoint) {
+            this.endpoint = endpoint;
+        }
+
+        @Override
+        public void setRegion(String region) {
+            this.region = region;
+        }
+
+        @Override
+        public String getSessionToken() {
+            return sessionToken;
+        }
+
+        @Override
+        public String getMaxConnections() {
+            return maxConnections;
+        }
+
+        @Override
+        public String getRequestTimeoutS() {
+            return requestTimeoutS;
+        }
+
+        @Override
+        public String getConnectionTimeoutS() {
+            return connectionTimeoutS;
+        }
+
+        @Override
+        public String getUsePathStyle() {
+            return usePathStyle;
+        }
+
+        @Override
+        public String getForceParsingByStandardUrl() {
+            return forceParsingByStandardUrl;
+        }
     }
 
     protected static boolean checkIdentifierKey(Map<String, String> origProps, List<Field> fields) {
