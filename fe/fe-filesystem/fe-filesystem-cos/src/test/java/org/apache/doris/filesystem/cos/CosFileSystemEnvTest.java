@@ -59,14 +59,13 @@ class CosFileSystemEnvTest {
     @BeforeAll
     static void setUp() {
         Map<String, String> props = new HashMap<>();
-        props.put("AWS_ENDPOINT", requireEnv("DORIS_FS_TEST_COS_ENDPOINT"));
-        props.put("AWS_REGION", requireEnv("DORIS_FS_TEST_COS_REGION"));
-        props.put("AWS_BUCKET", requireEnv("DORIS_FS_TEST_COS_BUCKET"));
-        props.put("AWS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_COS_AK"));
-        props.put("AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_COS_SK"));
-        props.put("use_path_style", "false");
-        bucket = props.get("AWS_BUCKET");
-        fs = new S3FileSystem(new CosObjStorage(props));
+        props.put("COS_ENDPOINT", requireEnv("DORIS_FS_TEST_COS_ENDPOINT"));
+        props.put("COS_REGION", requireEnv("DORIS_FS_TEST_COS_REGION"));
+        props.put("COS_BUCKET", requireEnv("DORIS_FS_TEST_COS_BUCKET"));
+        props.put("COS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_COS_AK"));
+        props.put("COS_SECRET_KEY", requireEnv("DORIS_FS_TEST_COS_SK"));
+        bucket = props.get("COS_BUCKET");
+        fs = new S3FileSystem("COS", new CosObjStorage(props));
     }
 
     @AfterAll

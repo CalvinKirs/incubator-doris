@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.cos;
 
+import org.apache.doris.filesystem.s3.S3ObjStorage;
+
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.http.HttpMethodName;
 import org.junit.jupiter.api.Assertions;
@@ -37,12 +39,8 @@ import java.util.Map;
  */
 class CosObjStorageTest {
 
-    // ------------------------------------------------------------------
-    // toS3Props() key-translation tests
-    // ------------------------------------------------------------------
-
     @Test
-    void toS3Props_cosKeysTranslatedToAwsKeys() {
+    void cosStorageKeepsCosPropertiesWithoutAwsTranslation() {
         Map<String, String> cosProps = new HashMap<>();
         cosProps.put("COS_ENDPOINT", "https://cos.ap-guangzhou.myqcloud.com");
         cosProps.put("COS_ACCESS_KEY", "mySecretId");
@@ -51,46 +49,24 @@ class CosObjStorageTest {
         cosProps.put("COS_REGION", "ap-guangzhou");
         cosProps.put("COS_ROLE_ARN", "qcs::cam::uin/100000:roleName/DorisRole");
 
-        Map<String, String> s3Props = CosObjStorage.toS3Props(cosProps);
+        CosObjStorage storage = new CosObjStorage(cosProps);
 
-        Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("mySecretId", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("mySecretKey", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("my-bucket-1234567890", s3Props.get("AWS_BUCKET"));
-        Assertions.assertEquals("ap-guangzhou", s3Props.get("AWS_REGION"));
-        Assertions.assertEquals("qcs::cam::uin/100000:roleName/DorisRole", s3Props.get("AWS_ROLE_ARN"));
-        Assertions.assertEquals("false", s3Props.get("use_path_style"));
+        Assertions.assertFalse(S3ObjStorage.class.isAssignableFrom(storage.getClass()));
+        Assertions.assertEquals("https://cos.ap-guangzhou.myqcloud.com", storage.getProperties().get("COS_ENDPOINT"));
+        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ENDPOINT"));
+        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ACCESS_KEY"));
     }
 
     @Test
-    void toS3Props_awsKeysPreservedWhenBothPresent() {
+    void cosStorageDoesNotAcceptAwsFallbackKeys() {
         Map<String, String> cosProps = new HashMap<>();
-        cosProps.put("COS_ENDPOINT", "https://cos.myqcloud.com");
         cosProps.put("AWS_ENDPOINT", "https://custom.endpoint");
-        cosProps.put("COS_ACCESS_KEY", "cosAK");
         cosProps.put("AWS_ACCESS_KEY", "awsAK");
 
-        Map<String, String> s3Props = CosObjStorage.toS3Props(cosProps);
+        CosObjStorage storage = new CosObjStorage(cosProps);
 
-        // AWS_* takes precedence when both exist
-        Assertions.assertEquals("https://custom.endpoint", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("awsAK", s3Props.get("AWS_ACCESS_KEY"));
-    }
-
-    @Test
-    void toS3Props_awsOnlyKeysPassedThrough() {
-        Map<String, String> cosProps = new HashMap<>();
-        cosProps.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
-        cosProps.put("AWS_ACCESS_KEY", "akid");
-        cosProps.put("AWS_SECRET_KEY", "sk");
-        cosProps.put("AWS_BUCKET", "bucket");
-
-        Map<String, String> s3Props = CosObjStorage.toS3Props(cosProps);
-
-        Assertions.assertEquals("https://s3.amazonaws.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("akid", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("sk", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("bucket", s3Props.get("AWS_BUCKET"));
+        Assertions.assertThrows(IOException.class,
+                () -> storage.getPresignedUrl("stage/f1"));
     }
 
     // ------------------------------------------------------------------

@@ -17,6 +17,7 @@
 
 package org.apache.doris.filesystem.s3;
 
+import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RequestBody;
 
 import java.io.ByteArrayInputStream;
@@ -49,14 +50,14 @@ class S3OutputStream extends OutputStream {
     private static final long MAX_SINGLE_UPLOAD_BYTES = 256L * 1024 * 1024; // 256 MB
 
     private final String remotePath;
-    private final S3ObjStorage objStorage;
+    private final ObjStorage<?> objStorage;
     private final ByteArrayOutputStream buffer = new ByteArrayOutputStream();
     private boolean closed = false;
     // Tracks whether write(...) was called at least once. close() skips the upload entirely
     // when this is false to avoid creating phantom 0-byte objects on accidental empty close.
     private boolean writeCalled = false;
 
-    S3OutputStream(String remotePath, S3ObjStorage objStorage) {
+    S3OutputStream(String remotePath, ObjStorage<?> objStorage) {
         this.remotePath = remotePath;
         this.objStorage = objStorage;
     }

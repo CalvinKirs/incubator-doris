@@ -17,8 +17,13 @@
 
 package org.apache.doris.filesystem.obs;
 
-import org.apache.doris.filesystem.s3.S3ObjStorage;
+import org.apache.doris.filesystem.s3.S3Uri;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.filesystem.spi.StsCredentials;
+import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import com.huaweicloud.sdk.core.auth.GlobalCredentials;
 import com.huaweicloud.sdk.core.auth.ICredential;
@@ -31,136 +36,277 @@ import com.huaweicloud.sdk.iam.v3.model.CreateTemporaryAccessKeyByAgencyResponse
 import com.huaweicloud.sdk.iam.v3.model.Credential;
 import com.huaweicloud.sdk.iam.v3.model.IdentityAssumerole;
 import com.obs.services.ObsClient;
+import com.obs.services.exception.ObsException;
+import com.obs.services.model.AbortMultipartUploadRequest;
+import com.obs.services.model.CompleteMultipartUploadRequest;
+import com.obs.services.model.CopyObjectRequest;
+import com.obs.services.model.DeleteObjectsRequest;
+import com.obs.services.model.GetObjectRequest;
 import com.obs.services.model.HttpMethodEnum;
+import com.obs.services.model.InitiateMultipartUploadRequest;
+import com.obs.services.model.InitiateMultipartUploadResult;
+import com.obs.services.model.ListObjectsRequest;
+import com.obs.services.model.ObjectListing;
+import com.obs.services.model.ObjectMetadata;
+import com.obs.services.model.ObsObject;
+import com.obs.services.model.PartEtag;
+import com.obs.services.model.PutObjectRequest;
 import com.obs.services.model.TemporarySignatureRequest;
 import com.obs.services.model.TemporarySignatureResponse;
+import com.obs.services.model.UploadPartRequest;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
- * Huawei Cloud OBS implementation of {@link org.apache.doris.filesystem.spi.ObjStorage}.
+ * Huawei Cloud OBS implementation of {@link ObjStorage} backed by the OBS native SDK.
  *
- * <p>Extends {@link S3ObjStorage} so all core I/O operations (list, head, put, delete, copy,
- * multipart upload) delegate to the parent using S3-compatible APIs — matching the reference pattern
- * where {@code ObsRemote extends DefaultRemote} (the S3-backed base class).
- *
- * <p>The two cloud-specific extension methods that <em>require</em> a native SDK are overridden:
- * <ul>
- *   <li>{@link #getPresignedUrl(String)} — uses Huawei OBS SDK
- *       ({@code ObsClient.createTemporarySignature}) to produce the correct OBS temporary URL.</li>
- *   <li>{@link #getStsToken()} — uses Huawei IAM SDK
- *       ({@code IamClient.createTemporaryAccessKeyByAgency}) to call the Huawei IAM endpoint.</li>
- * </ul>
- *
- * <p>Recognized property keys (OBS-specific; AWS_* equivalents accepted as fallback):
- * <ul>
- *   <li>{@code OBS_ENDPOINT} / {@code AWS_ENDPOINT} — OBS endpoint URL</li>
- *   <li>{@code OBS_ACCESS_KEY} / {@code AWS_ACCESS_KEY} — access key ID</li>
- *   <li>{@code OBS_SECRET_KEY} / {@code AWS_SECRET_KEY} — secret access key</li>
- *   <li>{@code OBS_BUCKET} / {@code AWS_BUCKET} — bucket name (required for cloud extensions)</li>
- *   <li>{@code OBS_REGION} / {@code AWS_REGION} — region (e.g. {@code cn-north-4})</li>
- *   <li>{@code OBS_AGENCY_NAME} — Huawei IAM agency name for STS (role name)</li>
- *   <li>{@code OBS_DOMAIN_NAME} — Huawei IAM domain name for STS (ARN equivalent)</li>
- * </ul>
+ * <p>This class consumes OBS-scoped properties only. It does not translate OBS properties
+ * to {@code AWS_*} keys and does not use the AWS S3 SDK.
  */
-public class ObsObjStorage extends S3ObjStorage {
+public class ObsObjStorage implements ObjStorage<ObsClient> {
 
     private static final Logger LOG = LogManager.getLogger(ObsObjStorage.class);
-
-    /** Validity period for presigned URLs and STS tokens, in seconds. */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
     private final Map<String, String> obsProperties;
+    private volatile ObsClient obsClient;
 
     public ObsObjStorage(Map<String, String> properties) {
-        super(toS3Props(properties));
-        this.obsProperties = properties;
+        this.obsProperties = Collections.unmodifiableMap(new HashMap<>(properties));
     }
 
-    /**
-     * Translates OBS-specific property keys to the AWS keys expected by {@link S3ObjStorage}.
-     * If both forms are present, the AWS_* key takes precedence.
-     */
-    static Map<String, String> toS3Props(Map<String, String> obsProps) {
-        Map<String, String> s3Props = new HashMap<>(obsProps);
-        if (obsProps.containsKey("OBS_ENDPOINT") && !obsProps.containsKey("AWS_ENDPOINT")) {
-            s3Props.put("AWS_ENDPOINT", obsProps.get("OBS_ENDPOINT"));
+    @Override
+    public ObsClient getClient() throws IOException {
+        if (obsClient == null) {
+            synchronized (this) {
+                if (obsClient == null) {
+                    obsClient = buildObsClient(
+                            resolveRequired("OBS_ENDPOINT", "OBS endpoint"),
+                            resolveRequired("OBS_ACCESS_KEY", "OBS access key"),
+                            resolveRequired("OBS_SECRET_KEY", "OBS secret key"));
+                }
+            }
         }
-        if (obsProps.containsKey("OBS_ACCESS_KEY") && !obsProps.containsKey("AWS_ACCESS_KEY")) {
-            s3Props.put("AWS_ACCESS_KEY", obsProps.get("OBS_ACCESS_KEY"));
-        }
-        if (obsProps.containsKey("OBS_SECRET_KEY") && !obsProps.containsKey("AWS_SECRET_KEY")) {
-            s3Props.put("AWS_SECRET_KEY", obsProps.get("OBS_SECRET_KEY"));
-        }
-        if (obsProps.containsKey("OBS_BUCKET") && !obsProps.containsKey("AWS_BUCKET")) {
-            s3Props.put("AWS_BUCKET", obsProps.get("OBS_BUCKET"));
-        }
-        if (obsProps.containsKey("OBS_REGION") && !obsProps.containsKey("AWS_REGION")) {
-            s3Props.put("AWS_REGION", obsProps.get("OBS_REGION"));
-        }
-        s3Props.put("use_path_style", "false");
-        return s3Props;
+        return obsClient;
     }
 
-    // -----------------------------------------------------------------------
-    // Cloud-specific extension overrides
-    // -----------------------------------------------------------------------
+    @Override
+    public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
+        return listObjects(remotePath, continuationToken, 0);
+    }
 
-    /**
-     * Generates a temporary signature URL for PUT using the Huawei OBS native SDK.
-     *
-     * @param objectKey the bare object key (no scheme or bucket prefix)
-     */
+    @Override
+    public RemoteObjects listObjects(String remotePath, String continuationToken, int maxKeys) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        ListObjectsRequest request = new ListObjectsRequest(uri.bucket());
+        request.setPrefix(uri.key());
+        if (continuationToken != null && !continuationToken.isEmpty()) {
+            request.setMarker(continuationToken);
+        }
+        if (maxKeys > 0) {
+            request.setMaxKeys(maxKeys);
+        }
+        return doListObjects(request, uri.key());
+    }
+
+    @Override
+    public RemoteObjects listObjectsNonRecursive(String remotePath, String continuationToken) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        ListObjectsRequest request = new ListObjectsRequest(uri.bucket());
+        request.setPrefix(uri.key());
+        request.setDelimiter("/");
+        if (continuationToken != null && !continuationToken.isEmpty()) {
+            request.setMarker(continuationToken);
+        }
+        return doListObjects(request, uri.key());
+    }
+
+    private RemoteObjects doListObjects(ListObjectsRequest request, String prefix) throws IOException {
+        try {
+            ObjectListing listing = getClient().listObjects(request);
+            List<RemoteObject> objects = listing.getObjects().stream()
+                    .map(obj -> toRemoteObject(prefix, obj))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(objects, listing.isTruncated(), listing.getNextMarker());
+        } catch (ObsException e) {
+            throw toIOException("Failed to list OBS objects", e);
+        }
+    }
+
+    private RemoteObject toRemoteObject(String prefix, ObsObject obj) {
+        ObjectMetadata metadata = obj.getMetadata();
+        long size = metadata == null || metadata.getContentLength() == null ? 0L : metadata.getContentLength();
+        long lastModified = metadata == null || metadata.getLastModified() == null
+                ? 0L : metadata.getLastModified().getTime();
+        String etag = metadata == null ? null : metadata.getEtag();
+        return new RemoteObject(obj.getObjectKey(), relativePath(prefix, obj.getObjectKey()),
+                etag, size, lastModified);
+    }
+
+    @Override
+    public RemoteObject headObject(String remotePath) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            ObjectMetadata metadata = getClient().getObjectMetadata(uri.bucket(), uri.key());
+            return new RemoteObject(uri.key(), uri.key(), metadata.getEtag(),
+                    metadata.getContentLength() == null ? 0L : metadata.getContentLength(),
+                    metadata.getLastModified() == null ? 0L : metadata.getLastModified().getTime());
+        } catch (ObsException e) {
+            throw toIOException("Object not found: " + remotePath, e);
+        }
+    }
+
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            GetObjectRequest request = new GetObjectRequest(uri.bucket(), uri.key());
+            if (fromByte > 0) {
+                request.setRangeStart(fromByte);
+            }
+            return getClient().getObject(request).getObjectContent();
+        } catch (ObsException e) {
+            throw toIOException("Failed to open OBS object: " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void putObject(String remotePath, RequestBody requestBody) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try (InputStream content = requestBody.content()) {
+            PutObjectRequest request = new PutObjectRequest(uri.bucket(), uri.key(), content);
+            ObjectMetadata metadata = new ObjectMetadata();
+            metadata.setContentLength(requestBody.contentLength());
+            request.setMetadata(metadata);
+            getClient().putObject(request);
+        } catch (ObsException e) {
+            throw toIOException("putObject failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void deleteObject(String remotePath) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            getClient().deleteObject(uri.bucket(), uri.key());
+        } catch (ObsException e) {
+            if (!isNotFound(e)) {
+                throw toIOException("deleteObject failed for " + remotePath, e);
+            }
+        }
+    }
+
+    @Override
+    public void copyObject(String srcPath, String dstPath) throws IOException {
+        S3Uri src = S3Uri.parse(srcPath, false);
+        S3Uri dst = S3Uri.parse(dstPath, false);
+        try {
+            getClient().copyObject(new CopyObjectRequest(src.bucket(), src.key(), dst.bucket(), dst.key()));
+        } catch (ObsException e) {
+            throw toIOException("copyObject failed from " + srcPath + " to " + dstPath, e);
+        }
+    }
+
+    @Override
+    public String initiateMultipartUpload(String remotePath) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            InitiateMultipartUploadResult result = getClient().initiateMultipartUpload(
+                    new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
+            return result.getUploadId();
+        } catch (ObsException e) {
+            throw toIOException("initiateMultipartUpload failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
+            RequestBody body) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try (InputStream content = body.content()) {
+            UploadPartRequest request = new UploadPartRequest(uri.bucket(), uri.key());
+            request.setUploadId(uploadId);
+            request.setPartNumber(partNum);
+            request.setInput(content);
+            request.setPartSize(body.contentLength());
+            com.obs.services.model.UploadPartResult result = getClient().uploadPart(request);
+            return new UploadPartResult(partNum, result.getEtag());
+        } catch (ObsException e) {
+            throw toIOException("uploadPart failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void completeMultipartUpload(String remotePath, String uploadId,
+            List<UploadPartResult> parts) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        List<PartEtag> eTags = parts.stream()
+                .map(part -> new PartEtag(part.etag(), part.partNumber()))
+                .collect(Collectors.toList());
+        try {
+            getClient().completeMultipartUpload(
+                    new CompleteMultipartUploadRequest(uri.bucket(), uri.key(), uploadId, eTags));
+        } catch (ObsException e) {
+            throw toIOException("completeMultipartUpload failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            getClient().abortMultipartUpload(new AbortMultipartUploadRequest(uri.bucket(), uri.key(), uploadId));
+        } catch (ObsException e) {
+            throw toIOException("abortMultipartUpload failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
+        DeleteObjectsRequest request = new DeleteObjectsRequest(bucket);
+        keys.forEach(request::addKeyAndVersion);
+        request.setQuiet(true);
+        try {
+            getClient().deleteObjects(request);
+        } catch (ObsException e) {
+            throw toIOException("deleteObjects failed for bucket=" + bucket, e);
+        }
+    }
+
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
-        String endpoint = resolveRequired("OBS_ENDPOINT", "AWS_ENDPOINT", "OBS endpoint");
-        String accessKey = resolveRequired("OBS_ACCESS_KEY", "AWS_ACCESS_KEY", "OBS access key");
-        String secretKey = resolveRequired("OBS_SECRET_KEY", "AWS_SECRET_KEY", "OBS secret key");
-        String bucket = resolveRequired("OBS_BUCKET", "AWS_BUCKET", "OBS bucket for presigned URL");
-        ObsClient obsClient = buildObsClient(endpoint, accessKey, secretKey);
+        String bucket = resolveRequired("OBS_BUCKET", "OBS bucket for presigned URL");
         try {
             TemporarySignatureRequest request = new TemporarySignatureRequest(
                     HttpMethodEnum.PUT, SESSION_EXPIRE_SECONDS);
             request.setBucketName(bucket);
             request.setObjectKey(objectKey);
             request.setHeaders(new HashMap<>());
-            TemporarySignatureResponse response = obsClient.createTemporarySignature(request);
-            String url = response.getSignedUrl();
+            TemporarySignatureResponse response = getClient().createTemporarySignature(request);
             LOG.info("Generated OBS temporary signature URL for key={}", objectKey);
-            return url;
-        } finally {
-            try {
-                obsClient.close();
-            } catch (IOException e) {
-                LOG.warn("Failed to close ObsClient after presigned URL generation", e);
-            }
+            return response.getSignedUrl();
+        } catch (ObsException e) {
+            throw toIOException("Failed to generate OBS temporary signature URL", e);
         }
     }
 
-    /**
-     * Factory method for creating an {@link ObsClient}; protected for testability.
-     */
-    protected ObsClient buildObsClient(String endpoint, String accessKey, String secretKey) {
-        return new ObsClient(accessKey, secretKey, endpoint);
-    }
-
-    /**
-     * Obtains temporary STS credentials using Huawei IAM
-     * ({@code createTemporaryAccessKeyByAgency}).
-     */
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = resolveRequired("OBS_REGION", "AWS_REGION", "OBS region for STS");
-        String accessKey = resolveRequired("OBS_ACCESS_KEY", "AWS_ACCESS_KEY", "OBS access key");
-        String secretKey = resolveRequired("OBS_SECRET_KEY", "AWS_SECRET_KEY", "OBS secret key");
-        String agencyName = resolveRequired("OBS_AGENCY_NAME", null, "OBS agency name for STS");
-        String domainName = resolveRequired("OBS_DOMAIN_NAME", null, "OBS domain name for STS");
+        String region = resolveRequired("OBS_REGION", "OBS region for STS");
+        String accessKey = resolveRequired("OBS_ACCESS_KEY", "OBS access key");
+        String secretKey = resolveRequired("OBS_SECRET_KEY", "OBS secret key");
+        String agencyName = resolveRequired("OBS_AGENCY_NAME", "OBS agency name for STS");
+        String domainName = resolveRequired("OBS_DOMAIN_NAME", "OBS domain name for STS");
         try {
             ICredential auth = new GlobalCredentials().withAk(accessKey).withSk(secretKey);
             IamClient client = IamClient.newBuilder()
@@ -194,27 +340,61 @@ public class ObsObjStorage extends S3ObjStorage {
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Property helpers
-    // -----------------------------------------------------------------------
-
-    private String resolveOpt(String primaryKey, String fallbackKey) {
-        String value = obsProperties.get(primaryKey);
-        if (value != null && !value.isEmpty()) {
-            return value;
+    protected ObsClient buildObsClient(String endpoint, String accessKey, String secretKey) {
+        String sessionToken = resolveOptional("OBS_TOKEN", "OBS_SESSION_TOKEN");
+        if (!sessionToken.isEmpty()) {
+            return new ObsClient(accessKey, secretKey, sessionToken, endpoint);
         }
-        if (fallbackKey != null) {
-            return obsProperties.get(fallbackKey);
-        }
-        return null;
+        return new ObsClient(accessKey, secretKey, endpoint);
     }
 
-    private String resolveRequired(String primaryKey, String fallbackKey, String description)
-            throws IOException {
-        String value = resolveOpt(primaryKey, fallbackKey);
+    @Override
+    public Map<String, String> getProperties() {
+        return obsProperties;
+    }
+
+    @Override
+    public void close() throws IOException {
+        if (obsClient != null) {
+            obsClient.close();
+            obsClient = null;
+        }
+    }
+
+    private String resolveRequired(String primaryKey, String description) throws IOException {
+        String value = obsProperties.get(primaryKey);
         if (value == null || value.isEmpty()) {
             throw new IOException(description + " is required; set " + primaryKey + " in properties");
         }
         return value;
+    }
+
+    private String resolveOptional(String... keys) {
+        for (String key : keys) {
+            String value = obsProperties.get(key);
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private IOException toIOException(String message, ObsException e) {
+        if (isNotFound(e)) {
+            return new FileNotFoundException(message);
+        }
+        return new IOException(message + ": " + e.getMessage(), e);
+    }
+
+    private boolean isNotFound(ObsException e) {
+        return e.getResponseCode() == 404 || "NoSuchKey".equals(e.getErrorCode());
+    }
+
+    private static String relativePath(String prefix, String key) {
+        String normalized = prefix == null || prefix.isEmpty() ? "" : prefix.endsWith("/") ? prefix : prefix + "/";
+        if (!key.startsWith(normalized)) {
+            return key;
+        }
+        return key.substring(normalized.length());
     }
 }

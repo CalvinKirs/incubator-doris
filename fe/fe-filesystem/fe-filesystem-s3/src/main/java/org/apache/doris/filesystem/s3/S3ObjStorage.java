@@ -392,6 +392,7 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
      * that need them should issue a separate request. Used to give the FileSystem
      * abstraction true POSIX-like "list one directory level" semantics on object stores.
      */
+    @Override
     public RemoteObjects listObjectsNonRecursive(String remotePath, String continuationToken)
             throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
@@ -574,7 +575,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     /**
      * Open an InputStream for reading an S3 object starting at a byte offset (HTTP Range request).
      */
-    InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
             GetObjectRequest.Builder req = GetObjectRequest.builder()
@@ -593,7 +595,8 @@ public class S3ObjStorage implements ObjStorage<S3Client> {
     /**
      * Returns the last-modified time of an S3 object in milliseconds since epoch.
      */
-    long headObjectLastModified(String remotePath) throws IOException {
+    @Override
+    public long headObjectLastModified(String remotePath) throws IOException {
         S3Uri uri = S3Uri.parse(remotePath, usePathStyle);
         try {
             HeadObjectResponse resp = getClient().headObject(

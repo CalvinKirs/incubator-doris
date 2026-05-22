@@ -17,6 +17,8 @@
 
 package org.apache.doris.filesystem.oss;
 
+import org.apache.doris.filesystem.s3.S3ObjStorage;
+
 import com.aliyun.oss.OSS;
 import com.aliyun.oss.model.GeneratePresignedUrlRequest;
 import org.junit.jupiter.api.Assertions;
@@ -36,12 +38,8 @@ import java.util.Map;
  */
 class OssObjStorageTest {
 
-    // ------------------------------------------------------------------
-    // toS3Props() key-translation tests
-    // ------------------------------------------------------------------
-
     @Test
-    void toS3Props_ossKeysTranslatedToAwsKeys() {
+    void ossStorageKeepsOssPropertiesWithoutAwsTranslation() {
         Map<String, String> ossProps = new HashMap<>();
         ossProps.put("OSS_ENDPOINT", "https://oss-cn-hangzhou.aliyuncs.com");
         ossProps.put("OSS_ACCESS_KEY", "myAK");
@@ -50,60 +48,24 @@ class OssObjStorageTest {
         ossProps.put("OSS_REGION", "cn-hangzhou");
         ossProps.put("OSS_ROLE_ARN", "acs:ram::12345:role/DorisRole");
 
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
+        OssObjStorage storage = new OssObjStorage(ossProps);
 
-        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("myAK", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("mySK", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("my-bucket", s3Props.get("AWS_BUCKET"));
-        Assertions.assertEquals("cn-hangzhou", s3Props.get("AWS_REGION"));
-        Assertions.assertEquals("acs:ram::12345:role/DorisRole", s3Props.get("AWS_ROLE_ARN"));
-        Assertions.assertEquals("false", s3Props.get("use_path_style"));
+        Assertions.assertFalse(S3ObjStorage.class.isAssignableFrom(storage.getClass()));
+        Assertions.assertEquals("https://oss-cn-hangzhou.aliyuncs.com", storage.getProperties().get("OSS_ENDPOINT"));
+        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ENDPOINT"));
+        Assertions.assertFalse(storage.getProperties().containsKey("AWS_ACCESS_KEY"));
     }
 
     @Test
-    void toS3Props_awsKeysPreservedWhenBothPresent() {
+    void ossStorageDoesNotAcceptAwsFallbackKeys() {
         Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("OSS_ENDPOINT", "https://oss.aliyuncs.com");
         ossProps.put("AWS_ENDPOINT", "https://custom.endpoint");
-        ossProps.put("OSS_ACCESS_KEY", "ossAK");
         ossProps.put("AWS_ACCESS_KEY", "awsAK");
 
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
+        OssObjStorage storage = new OssObjStorage(ossProps);
 
-        // AWS_* keys take precedence when both exist
-        Assertions.assertEquals("https://custom.endpoint", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("awsAK", s3Props.get("AWS_ACCESS_KEY"));
-    }
-
-    @Test
-    void toS3Props_awsOnlyKeysPassedThrough() {
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("AWS_ENDPOINT", "https://s3.amazonaws.com");
-        ossProps.put("AWS_ACCESS_KEY", "akid");
-        ossProps.put("AWS_SECRET_KEY", "sk");
-        ossProps.put("AWS_BUCKET", "bucket");
-
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
-
-        Assertions.assertEquals("https://s3.amazonaws.com", s3Props.get("AWS_ENDPOINT"));
-        Assertions.assertEquals("akid", s3Props.get("AWS_ACCESS_KEY"));
-        Assertions.assertEquals("sk", s3Props.get("AWS_SECRET_KEY"));
-        Assertions.assertEquals("bucket", s3Props.get("AWS_BUCKET"));
-    }
-
-    @Test
-    void toS3Props_sessionTokenTranslated() {
-        Map<String, String> ossProps = new HashMap<>();
-        ossProps.put("OSS_ENDPOINT", "https://oss.aliyuncs.com");
-        ossProps.put("OSS_ACCESS_KEY", "ak");
-        ossProps.put("OSS_SECRET_KEY", "sk");
-        ossProps.put("OSS_TOKEN", "session-token-xyz");
-        ossProps.put("OSS_BUCKET", "bkt");
-
-        Map<String, String> s3Props = OssObjStorage.toS3Props(ossProps);
-
-        Assertions.assertEquals("session-token-xyz", s3Props.get("AWS_TOKEN"));
+        Assertions.assertThrows(IOException.class,
+                () -> storage.getPresignedUrl("stage/f1"));
     }
 
     // ------------------------------------------------------------------

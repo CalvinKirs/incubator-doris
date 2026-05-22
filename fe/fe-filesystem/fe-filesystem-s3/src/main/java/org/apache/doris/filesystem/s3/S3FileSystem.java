@@ -25,16 +25,13 @@ import org.apache.doris.filesystem.FileIterator;
 import org.apache.doris.filesystem.GlobListing;
 import org.apache.doris.filesystem.Location;
 import org.apache.doris.filesystem.spi.ObjFileSystem;
+import org.apache.doris.filesystem.spi.ObjStorage;
 import org.apache.doris.filesystem.spi.RemoteObject;
 import org.apache.doris.filesystem.spi.RemoteObjects;
 import org.apache.doris.filesystem.spi.RequestBody;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Request;
-import software.amazon.awssdk.services.s3.model.ListObjectsV2Response;
-import software.amazon.awssdk.services.s3.model.NoSuchKeyException;
-import software.amazon.awssdk.services.s3.model.S3Object;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -60,6 +57,10 @@ public class S3FileSystem extends ObjFileSystem {
 
     public S3FileSystem(S3ObjStorage objStorage) {
         super("S3", objStorage);
+    }
+
+    public S3FileSystem(String name, ObjStorage<?> objStorage) {
+        super(name, objStorage);
     }
 
     @Override
@@ -147,7 +148,7 @@ public class S3FileSystem extends ObjFileSystem {
         String prefix = location.uri().endsWith(DIR_MARKER_SUFFIX)
                 ? location.uri() : location.uri() + DIR_MARKER_SUFFIX;
         String markerKey = parseUri(prefix).key();
-        RemoteObjects probe = ((S3ObjStorage) objStorage).listObjects(prefix, null, 2);
+        RemoteObjects probe = objStorage.listObjects(prefix, null, 2);
         for (RemoteObject obj : probe.getObjectList()) {
             if (!obj.getKey().equals(markerKey)) {
                 throw new IOException("Directory not empty: " + location.uri());
@@ -181,9 +182,8 @@ public class S3FileSystem extends ObjFileSystem {
             S3Uri u = parseUri(loc.uri());
             byBucket.computeIfAbsent(u.bucket(), b -> new ArrayList<>()).add(u.key());
         }
-        S3ObjStorage s3 = (S3ObjStorage) objStorage;
         for (Map.Entry<String, List<String>> e : byBucket.entrySet()) {
-            s3.deleteObjectsByKeys(e.getKey(), e.getValue());
+            objStorage.deleteObjectsByKeys(e.getKey(), e.getValue());
         }
     }
 
@@ -193,16 +193,15 @@ public class S3FileSystem extends ObjFileSystem {
         // requests at the S3 1000-key limit.
         S3Uri prefixUri = parseUri(prefix);
         String bucket = prefixUri.bucket();
-        S3ObjStorage s3 = (S3ObjStorage) objStorage;
         String continuationToken = null;
         do {
-            RemoteObjects batch = s3.listObjects(prefix, continuationToken);
+            RemoteObjects batch = objStorage.listObjects(prefix, continuationToken);
             if (!batch.getObjectList().isEmpty()) {
                 List<String> keys = new ArrayList<>(batch.getObjectList().size());
                 for (RemoteObject obj : batch.getObjectList()) {
                     keys.add(obj.getKey());
                 }
-                s3.deleteObjectsByKeys(bucket, keys);
+                objStorage.deleteObjectsByKeys(bucket, keys);
             }
             continuationToken = batch.isTruncated() ? batch.getContinuationToken() : null;
         } while (continuationToken != null);
@@ -210,7 +209,9 @@ public class S3FileSystem extends ObjFileSystem {
 
     /** Parses {@code uri} respecting the underlying client's path-style configuration. */
     private S3Uri parseUri(String uri) {
-        return S3Uri.parse(uri, ((S3ObjStorage) objStorage).isUsePathStyle());
+        boolean usePathStyle = objStorage instanceof S3ObjStorage
+                && ((S3ObjStorage) objStorage).isUsePathStyle();
+        return S3Uri.parse(uri, usePathStyle);
     }
 
     /**
@@ -245,7 +246,7 @@ public class S3FileSystem extends ObjFileSystem {
 
     private boolean prefixHasChildren(String uri) throws IOException {
         String prefix = uri.endsWith(DIR_MARKER_SUFFIX) ? uri : uri + DIR_MARKER_SUFFIX;
-        RemoteObjects page = ((S3ObjStorage) objStorage).listObjects(prefix, null, 1);
+        RemoteObjects page = objStorage.listObjects(prefix, null, 1);
         return !page.getObjectList().isEmpty();
     }
 
@@ -324,13 +325,11 @@ public class S3FileSystem extends ObjFileSystem {
         String srcPrefix = srcUri.endsWith(DIR_MARKER_SUFFIX) ? srcUri : srcUri + DIR_MARKER_SUFFIX;
         String dstPrefix = dstUri.endsWith(DIR_MARKER_SUFFIX) ? dstUri : dstUri + DIR_MARKER_SUFFIX;
 
-        S3ObjStorage s3 = (S3ObjStorage) objStorage;
-
         // 1. Collect all source keys (paginated).
         List<String> srcKeys = new ArrayList<>();
         String continuation = null;
         do {
-            RemoteObjects page = s3.listObjects(srcPrefix, continuation);
+            RemoteObjects page = objStorage.listObjects(srcPrefix, continuation);
             for (RemoteObject obj : page.getObjectList()) {
                 srcKeys.add(obj.getKey());
             }
@@ -343,7 +342,7 @@ public class S3FileSystem extends ObjFileSystem {
         }
 
         // 2. Refuse to clobber a non-empty destination prefix.
-        RemoteObjects dstProbe = s3.listObjects(dstPrefix, null, 1);
+        RemoteObjects dstProbe = objStorage.listObjects(dstPrefix, null, 1);
         if (!dstProbe.getObjectList().isEmpty()) {
             throw new FileAlreadyExistsException(dstUri);
         }
@@ -364,7 +363,7 @@ public class S3FileSystem extends ObjFileSystem {
         }
 
         // 4. Batch-delete the original keys.
-        s3.deleteObjectsByKeys(bucket, srcKeys);
+        objStorage.deleteObjectsByKeys(bucket, srcKeys);
     }
 
     @Override
@@ -427,11 +426,10 @@ public class S3FileSystem extends ObjFileSystem {
         String prefix = uri.endsWith(DIR_MARKER_SUFFIX) ? uri : uri + DIR_MARKER_SUFFIX;
         String prefixKey = parseUri(prefix).key();
 
-        S3ObjStorage s3 = (S3ObjStorage) objStorage;
         List<FileEntry> result = new ArrayList<>();
         String continuation = null;
         do {
-            RemoteObjects page = s3.listObjectsNonRecursive(prefix, continuation);
+            RemoteObjects page = objStorage.listObjectsNonRecursive(prefix, continuation);
             for (RemoteObject obj : page.getObjectList()) {
                 // Skip the directory marker placeholder: key equals the listing prefix
                 // or otherwise ends with "/".
@@ -465,11 +463,10 @@ public class S3FileSystem extends ObjFileSystem {
         Pattern matcher = Pattern.compile(globToRegex(basenameGlob));
         String parentKey = parseUri(parentPrefix).key();
 
-        S3ObjStorage s3 = (S3ObjStorage) objStorage;
         List<FileEntry> result = new ArrayList<>();
         String continuation = null;
         do {
-            RemoteObjects page = s3.listObjectsNonRecursive(parentPrefix, continuation);
+            RemoteObjects page = objStorage.listObjectsNonRecursive(parentPrefix, continuation);
             for (RemoteObject obj : page.getObjectList()) {
                 String key = obj.getKey();
                 // Skip the synthetic directory marker for the parent itself, and any
@@ -655,7 +652,7 @@ public class S3FileSystem extends ObjFileSystem {
             if (!exists) {
                 throw new java.io.FileNotFoundException("Object not found: " + location.uri());
             }
-            return new S3SeekableInputStream(location.uri(), (S3ObjStorage) objStorage, length);
+            return new S3SeekableInputStream(location.uri(), objStorage, length);
         }
 
         /**
@@ -699,13 +696,13 @@ public class S3FileSystem extends ObjFileSystem {
         private static final int READ_AHEAD_BYTES = 64 * 1024;
 
         private final String remotePath;
-        private final S3ObjStorage objStorage;
+        private final ObjStorage<?> objStorage;
         private final long fileLength;
         private long position;
         private InputStream current;
         private boolean closed;
 
-        S3SeekableInputStream(String remotePath, S3ObjStorage objStorage, long fileLength) {
+        S3SeekableInputStream(String remotePath, ObjStorage<?> objStorage, long fileLength) {
             this.remotePath = remotePath;
             this.objStorage = objStorage;
             this.fileLength = fileLength;
@@ -828,7 +825,7 @@ public class S3FileSystem extends ObjFileSystem {
         @Override
         public OutputStream createOrOverwrite() throws IOException {
             // Use a buffered in-memory stream; flush triggers PutObject on close
-            return new S3OutputStream(location.uri(), (S3ObjStorage) objStorage);
+            return new S3OutputStream(location.uri(), objStorage);
         }
     }
 
@@ -925,15 +922,6 @@ public class S3FileSystem extends ObjFileSystem {
         Pattern matcher = Pattern.compile(globToRegex(expandedKeyPattern));
         String listPrefix = longestNonGlobPrefix(expandedKeyPattern);
 
-        S3ObjStorage s3 = (S3ObjStorage) objStorage;
-        ListObjectsV2Request.Builder reqBuilder = ListObjectsV2Request.builder()
-                .bucket(bucket)
-                .prefix(listPrefix);
-        if (startAfter != null && !startAfter.isEmpty()) {
-            reqBuilder.startAfter(startAfter);
-        }
-        ListObjectsV2Request request = reqBuilder.build();
-
         List<FileEntry> files = new ArrayList<>();
         long totalSize = 0L;
         boolean reachLimit = false;
@@ -941,55 +929,49 @@ public class S3FileSystem extends ObjFileSystem {
         // Empty string means no such key was found yet (scanning still in progress or no more keys).
         String nextMatchAfterLimit = "";
         String lastMatchedKey = "";
-        boolean isTruncated;
+        String continuationToken = null;
+        String listPrefixUri = base + listPrefix;
 
-        try {
-            do {
-                ListObjectsV2Response response = s3.getClient().listObjectsV2(request);
-                for (S3Object obj : response.contents()) {
-                    if (reachLimit) {
-                        // After hitting limit: find the first matching key so callers know more data exists.
-                        if (nextMatchAfterLimit.isEmpty()
-                                && matcher.matcher(obj.key()).matches()) {
-                            nextMatchAfterLimit = obj.key();
-                        }
-                        continue;
+        do {
+            RemoteObjects response = objStorage.listObjects(listPrefixUri, continuationToken);
+            for (RemoteObject obj : response.getObjectList()) {
+                String key = obj.getKey();
+                if (startAfter != null && !startAfter.isEmpty()
+                        && key.compareTo(startAfter) <= 0) {
+                    continue;
+                }
+                if (reachLimit) {
+                    // After hitting limit: find the first matching key so callers know more data exists.
+                    if (nextMatchAfterLimit.isEmpty()
+                            && matcher.matcher(key).matches()) {
+                        nextMatchAfterLimit = key;
                     }
-
-                    if (!matcher.matcher(obj.key()).matches()) {
-                        continue;
-                    }
-
-                    files.add(new FileEntry(
-                            Location.of(base + obj.key()),
-                            obj.size(),
-                            false,
-                            obj.lastModified() != null ? obj.lastModified().toEpochMilli() : 0L,
-                            null));
-                    totalSize += obj.size();
-                    lastMatchedKey = obj.key();
-
-                    if ((maxFiles > 0 && files.size() >= maxFiles)
-                            || (maxBytes > 0 && totalSize >= maxBytes)) {
-                        reachLimit = true;
-                    }
+                    continue;
                 }
 
-                isTruncated = response.isTruncated();
-                if (isTruncated) {
-                    request = request.toBuilder()
-                            .continuationToken(response.nextContinuationToken())
-                            .build();
+                if (!matcher.matcher(key).matches()) {
+                    continue;
                 }
-                // Continue paginating after limit until we find the next matching key,
-                // so callers can use it as a pagination cursor.
-            } while (isTruncated && (!reachLimit || nextMatchAfterLimit.isEmpty()));
-        } catch (NoSuchKeyException e) {
-            LOG.info("NoSuchKey when listing s3://{}/{}, treating as empty", bucket, listPrefix);
-            return new GlobListing(List.of(), bucket, listPrefix, "");
-        } catch (Exception e) {
-            throw new IOException("Failed to list S3 objects at " + uri + ": " + e.getMessage(), e);
-        }
+
+                files.add(new FileEntry(
+                        Location.of(base + key),
+                        obj.getSize(),
+                        false,
+                        obj.getModificationTime(),
+                        null));
+                totalSize += obj.getSize();
+                lastMatchedKey = key;
+
+                if ((maxFiles > 0 && files.size() >= maxFiles)
+                        || (maxBytes > 0 && totalSize >= maxBytes)) {
+                    reachLimit = true;
+                }
+            }
+
+            continuationToken = response.isTruncated() ? response.getContinuationToken() : null;
+            // Continue paginating after limit until we find the next matching key,
+            // so callers can use it as a pagination cursor.
+        } while (continuationToken != null && (!reachLimit || nextMatchAfterLimit.isEmpty()));
 
         // maxFile is the next matching key after the returned page (if found), or the last returned key.
         String maxFile = nextMatchAfterLimit.isEmpty() ? lastMatchedKey : nextMatchAfterLimit;

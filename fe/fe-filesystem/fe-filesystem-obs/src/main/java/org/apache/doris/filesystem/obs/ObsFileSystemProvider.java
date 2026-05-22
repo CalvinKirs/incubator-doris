@@ -22,7 +22,6 @@ import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -30,10 +29,10 @@ import java.util.Map;
  *
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
- * <p>Identified by an endpoint containing {@code myhuaweicloud.com}. Translates OBS-specific
- * property keys to S3-compatible keys and delegates core I/O to {@link S3FileSystem},
- * while {@link ObsObjStorage} overrides cloud-specific operations (presigned URL, STS)
- * using the Huawei Cloud native SDK.
+ * <p>Identified by {@code _STORAGE_TYPE_=OBS} or an OBS endpoint containing
+ * {@code myhuaweicloud.com}. The provider creates {@link ObsObjStorage} directly with
+ * OBS-scoped properties, for example {@code OBS_ENDPOINT}, {@code OBS_REGION},
+ * {@code OBS_ACCESS_KEY}, and {@code OBS_SECRET_KEY}.
  */
 public class ObsFileSystemProvider implements FileSystemProvider {
 
@@ -43,26 +42,12 @@ public class ObsFileSystemProvider implements FileSystemProvider {
             return true;
         }
         String endpoint = properties.get("OBS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
-        }
         return endpoint != null && endpoint.contains("myhuaweicloud.com");
     }
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        Map<String, String> props = new HashMap<>(properties);
-        if (properties.containsKey("OBS_ENDPOINT")) {
-            props.put("AWS_ENDPOINT", properties.get("OBS_ENDPOINT"));
-        }
-        if (properties.containsKey("OBS_ACCESS_KEY")) {
-            props.put("AWS_ACCESS_KEY", properties.get("OBS_ACCESS_KEY"));
-        }
-        if (properties.containsKey("OBS_SECRET_KEY")) {
-            props.put("AWS_SECRET_KEY", properties.get("OBS_SECRET_KEY"));
-        }
-        props.put("use_path_style", "false");
-        return new S3FileSystem(new ObsObjStorage(props));
+        return new S3FileSystem(name(), new ObsObjStorage(properties));
     }
 
     @Override

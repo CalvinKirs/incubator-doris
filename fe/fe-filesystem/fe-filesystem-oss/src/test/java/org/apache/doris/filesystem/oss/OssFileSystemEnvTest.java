@@ -59,13 +59,13 @@ class OssFileSystemEnvTest {
     @BeforeAll
     static void setUp() {
         Map<String, String> props = new HashMap<>();
-        props.put("AWS_ENDPOINT", requireEnv("DORIS_FS_TEST_OSS_ENDPOINT"));
-        props.put("AWS_REGION", requireEnv("DORIS_FS_TEST_OSS_REGION"));
-        props.put("AWS_BUCKET", requireEnv("DORIS_FS_TEST_OSS_BUCKET"));
-        props.put("AWS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OSS_AK"));
-        props.put("AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OSS_SK"));
-        bucket = props.get("AWS_BUCKET");
-        fs = new S3FileSystem(new OssObjStorage(props));
+        props.put("OSS_ENDPOINT", requireEnv("DORIS_FS_TEST_OSS_ENDPOINT"));
+        props.put("OSS_REGION", requireEnv("DORIS_FS_TEST_OSS_REGION"));
+        props.put("OSS_BUCKET", requireEnv("DORIS_FS_TEST_OSS_BUCKET"));
+        props.put("OSS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OSS_AK"));
+        props.put("OSS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OSS_SK"));
+        bucket = props.get("OSS_BUCKET");
+        fs = new S3FileSystem("OSS", new OssObjStorage(props));
     }
 
     @AfterAll

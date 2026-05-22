@@ -72,7 +72,7 @@ public abstract class EnvTestBase {
         return Map.of(
                 "COS_ENDPOINT", requireEnv("DORIS_FS_TEST_COS_ENDPOINT"),
                 "COS_REGION", requireEnv("DORIS_FS_TEST_COS_REGION"),
-                "AWS_BUCKET", requireEnv("DORIS_FS_TEST_COS_BUCKET"),
+                "COS_BUCKET", requireEnv("DORIS_FS_TEST_COS_BUCKET"),
                 "COS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_COS_AK"),
                 "COS_SECRET_KEY", requireEnv("DORIS_FS_TEST_COS_SK")
         );
@@ -80,21 +80,21 @@ public abstract class EnvTestBase {
 
     protected static Map<String, String> ossProps() {
         return Map.of(
-                "AWS_ENDPOINT", requireEnv("DORIS_FS_TEST_OSS_ENDPOINT"),
-                "AWS_REGION", requireEnv("DORIS_FS_TEST_OSS_REGION"),
-                "AWS_BUCKET", requireEnv("DORIS_FS_TEST_OSS_BUCKET"),
-                "AWS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OSS_AK"),
-                "AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OSS_SK")
+                "OSS_ENDPOINT", requireEnv("DORIS_FS_TEST_OSS_ENDPOINT"),
+                "OSS_REGION", requireEnv("DORIS_FS_TEST_OSS_REGION"),
+                "OSS_BUCKET", requireEnv("DORIS_FS_TEST_OSS_BUCKET"),
+                "OSS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OSS_AK"),
+                "OSS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OSS_SK")
         );
     }
 
     protected static Map<String, String> obsProps() {
         return Map.of(
-                "AWS_ENDPOINT", requireEnv("DORIS_FS_TEST_OBS_ENDPOINT"),
-                "AWS_REGION", requireEnv("DORIS_FS_TEST_OBS_REGION"),
-                "AWS_BUCKET", requireEnv("DORIS_FS_TEST_OBS_BUCKET"),
-                "AWS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OBS_AK"),
-                "AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OBS_SK")
+                "OBS_ENDPOINT", requireEnv("DORIS_FS_TEST_OBS_ENDPOINT"),
+                "OBS_REGION", requireEnv("DORIS_FS_TEST_OBS_REGION"),
+                "OBS_BUCKET", requireEnv("DORIS_FS_TEST_OBS_BUCKET"),
+                "OBS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OBS_AK"),
+                "OBS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OBS_SK")
         );
     }
 }

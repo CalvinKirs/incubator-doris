@@ -59,13 +59,13 @@ class ObsFileSystemEnvTest {
     @BeforeAll
     static void setUp() {
         Map<String, String> props = new HashMap<>();
-        props.put("AWS_ENDPOINT", requireEnv("DORIS_FS_TEST_OBS_ENDPOINT"));
-        props.put("AWS_REGION", requireEnv("DORIS_FS_TEST_OBS_REGION"));
-        props.put("AWS_BUCKET", requireEnv("DORIS_FS_TEST_OBS_BUCKET"));
-        props.put("AWS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OBS_AK"));
-        props.put("AWS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OBS_SK"));
-        bucket = props.get("AWS_BUCKET");
-        fs = new S3FileSystem(new ObsObjStorage(props));
+        props.put("OBS_ENDPOINT", requireEnv("DORIS_FS_TEST_OBS_ENDPOINT"));
+        props.put("OBS_REGION", requireEnv("DORIS_FS_TEST_OBS_REGION"));
+        props.put("OBS_BUCKET", requireEnv("DORIS_FS_TEST_OBS_BUCKET"));
+        props.put("OBS_ACCESS_KEY", requireEnv("DORIS_FS_TEST_OBS_AK"));
+        props.put("OBS_SECRET_KEY", requireEnv("DORIS_FS_TEST_OBS_SK"));
+        bucket = props.get("OBS_BUCKET");
+        fs = new S3FileSystem("OBS", new ObsObjStorage(props));
     }
 
     @AfterAll

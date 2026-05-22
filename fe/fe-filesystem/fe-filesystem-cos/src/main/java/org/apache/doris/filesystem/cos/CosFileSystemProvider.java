@@ -22,7 +22,6 @@ import org.apache.doris.filesystem.s3.S3FileSystem;
 import org.apache.doris.filesystem.spi.FileSystemProvider;
 
 import java.io.IOException;
-import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -30,10 +29,10 @@ import java.util.Map;
  *
  * <p>Registered via META-INF/services/org.apache.doris.filesystem.spi.FileSystemProvider.
  *
- * <p>Identified by an endpoint containing {@code myqcloud.com}. Translates COS-specific
- * property keys to S3-compatible keys and delegates core I/O to {@link S3FileSystem},
- * while {@link CosObjStorage} overrides cloud-specific operations (presigned URL, STS)
- * using the Tencent Cloud native SDK.
+ * <p>Identified by {@code _STORAGE_TYPE_=COS} or a COS endpoint containing
+ * {@code myqcloud.com}. The provider creates {@link CosObjStorage} directly with
+ * COS-scoped properties, for example {@code COS_ENDPOINT}, {@code COS_REGION},
+ * {@code COS_ACCESS_KEY}, and {@code COS_SECRET_KEY}.
  */
 public class CosFileSystemProvider implements FileSystemProvider {
 
@@ -43,26 +42,12 @@ public class CosFileSystemProvider implements FileSystemProvider {
             return true;
         }
         String endpoint = properties.get("COS_ENDPOINT");
-        if (endpoint == null) {
-            endpoint = properties.get("AWS_ENDPOINT");
-        }
         return endpoint != null && endpoint.contains("myqcloud.com");
     }
 
     @Override
     public FileSystem create(Map<String, String> properties) throws IOException {
-        Map<String, String> props = new HashMap<>(properties);
-        if (properties.containsKey("COS_ENDPOINT")) {
-            props.put("AWS_ENDPOINT", properties.get("COS_ENDPOINT"));
-        }
-        if (properties.containsKey("COS_ACCESS_KEY")) {
-            props.put("AWS_ACCESS_KEY", properties.get("COS_ACCESS_KEY"));
-        }
-        if (properties.containsKey("COS_SECRET_KEY")) {
-            props.put("AWS_SECRET_KEY", properties.get("COS_SECRET_KEY"));
-        }
-        props.put("use_path_style", "false");
-        return new S3FileSystem(new CosObjStorage(props));
+        return new S3FileSystem(name(), new CosObjStorage(properties));
     }
 
     @Override

@@ -37,6 +37,7 @@ import java.lang.reflect.Field;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -333,10 +334,15 @@ public abstract class AbstractS3CompatibleProperties extends StorageProperties i
 
     /** Returns the bucket name from the connector properties map. */
     public String getBucket() {
-        String bucket = origProps.get("s3.bucket");
-        if (bucket == null) {
-            bucket = origProps.get("AWS_BUCKET");
+        String provider = type.name().toLowerCase(Locale.ROOT);
+        List<String> bucketKeys = Arrays.asList(provider + ".bucket", type.name() + "_BUCKET",
+                "s3.bucket", "AWS_BUCKET");
+        for (String bucketKey : bucketKeys) {
+            String bucket = origProps.get(bucketKey);
+            if (bucket != null) {
+                return bucket;
+            }
         }
-        return bucket != null ? bucket : "";
+        return "";
     }
 }

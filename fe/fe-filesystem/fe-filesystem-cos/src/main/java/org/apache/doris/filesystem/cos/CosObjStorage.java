@@ -17,16 +17,37 @@
 
 package org.apache.doris.filesystem.cos;
 
-import org.apache.doris.filesystem.s3.S3ObjStorage;
+import org.apache.doris.filesystem.s3.S3Uri;
+import org.apache.doris.filesystem.spi.ObjStorage;
+import org.apache.doris.filesystem.spi.RemoteObject;
+import org.apache.doris.filesystem.spi.RemoteObjects;
+import org.apache.doris.filesystem.spi.RequestBody;
 import org.apache.doris.filesystem.spi.StsCredentials;
+import org.apache.doris.filesystem.spi.UploadPartResult;
 
 import com.qcloud.cos.COSClient;
 import com.qcloud.cos.ClientConfig;
 import com.qcloud.cos.auth.BasicCOSCredentials;
+import com.qcloud.cos.auth.BasicSessionCredentials;
 import com.qcloud.cos.auth.COSCredentials;
 import com.qcloud.cos.exception.CosClientException;
+import com.qcloud.cos.exception.CosServiceException;
 import com.qcloud.cos.http.HttpMethodName;
 import com.qcloud.cos.http.HttpProtocol;
+import com.qcloud.cos.model.AbortMultipartUploadRequest;
+import com.qcloud.cos.model.COSObject;
+import com.qcloud.cos.model.COSObjectSummary;
+import com.qcloud.cos.model.CompleteMultipartUploadRequest;
+import com.qcloud.cos.model.CopyObjectRequest;
+import com.qcloud.cos.model.DeleteObjectsRequest;
+import com.qcloud.cos.model.GetObjectRequest;
+import com.qcloud.cos.model.InitiateMultipartUploadRequest;
+import com.qcloud.cos.model.InitiateMultipartUploadResult;
+import com.qcloud.cos.model.ListObjectsRequest;
+import com.qcloud.cos.model.ObjectListing;
+import com.qcloud.cos.model.ObjectMetadata;
+import com.qcloud.cos.model.PartETag;
+import com.qcloud.cos.model.UploadPartRequest;
 import com.qcloud.cos.region.Region;
 import com.tencentcloudapi.common.Credential;
 import com.tencentcloudapi.sts.v20180813.StsClient;
@@ -36,116 +57,250 @@ import com.tencentcloudapi.sts.v20180813.models.Credentials;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.FileNotFoundException;
 import java.io.IOException;
+import java.io.InputStream;
 import java.net.URL;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.stream.Collectors;
 
 /**
- * Tencent Cloud COS implementation of {@link org.apache.doris.filesystem.spi.ObjStorage}.
+ * Tencent Cloud COS implementation of {@link ObjStorage} backed by the COS native SDK.
  *
- * <p>Extends {@link S3ObjStorage} so all core I/O operations (list, head, put, delete, copy,
- * multipart upload) delegate to the parent using S3-compatible APIs — matching the reference pattern
- * where {@code CosRemote extends DefaultRemote} (the S3-backed base class).
- *
- * <p>The two cloud-specific extension methods that <em>require</em> a native SDK are overridden:
- * <ul>
- *   <li>{@link #getPresignedUrl(String)} — uses Tencent COS SDK
- *       ({@code COSClient.generatePresignedUrl}) to produce the correct COS signature format.</li>
- *   <li>{@link #getStsToken()} — uses Tencent Cloud STS SDK
- *       ({@code StsClient.AssumeRole}) to call {@code sts.tencentcloudapi.com}.</li>
- * </ul>
- *
- * <p>Recognized property keys (COS-specific; AWS_* equivalents accepted as fallback):
- * <ul>
- *   <li>{@code COS_ENDPOINT} / {@code AWS_ENDPOINT} — COS endpoint URL</li>
- *   <li>{@code COS_ACCESS_KEY} / {@code AWS_ACCESS_KEY} — SecretId</li>
- *   <li>{@code COS_SECRET_KEY} / {@code AWS_SECRET_KEY} — SecretKey</li>
- *   <li>{@code COS_BUCKET} / {@code AWS_BUCKET} — bucket name (required for cloud extensions)</li>
- *   <li>{@code COS_REGION} / {@code AWS_REGION} — region (e.g. {@code ap-guangzhou})</li>
- *   <li>{@code COS_ROLE_ARN} / {@code AWS_ROLE_ARN} — role ARN for STS assumption</li>
- * </ul>
+ * <p>This class consumes COS-scoped properties only. It does not translate COS properties
+ * to {@code AWS_*} keys and does not depend on AWS S3 credentials or clients.
  */
-public class CosObjStorage extends S3ObjStorage {
+public class CosObjStorage implements ObjStorage<COSClient> {
 
     private static final Logger LOG = LogManager.getLogger(CosObjStorage.class);
-
-    /** Validity period for presigned URLs and STS tokens, in seconds. */
     private static final int SESSION_EXPIRE_SECONDS = 3600;
 
     private final Map<String, String> cosProperties;
     private volatile COSClient cosClient;
 
     public CosObjStorage(Map<String, String> properties) {
-        super(toS3Props(properties));
-        this.cosProperties = properties;
+        this.cosProperties = Collections.unmodifiableMap(new HashMap<>(properties));
     }
 
-    /**
-     * Translates COS-specific property keys to the AWS keys expected by {@link S3ObjStorage}.
-     * If both forms are present, the AWS_* key takes precedence.
-     */
-    static Map<String, String> toS3Props(Map<String, String> cosProps) {
-        Map<String, String> s3Props = new HashMap<>(cosProps);
-        if (cosProps.containsKey("COS_ENDPOINT") && !cosProps.containsKey("AWS_ENDPOINT")) {
-            s3Props.put("AWS_ENDPOINT", cosProps.get("COS_ENDPOINT"));
+    @Override
+    public COSClient getClient() throws IOException {
+        if (cosClient == null) {
+            synchronized (this) {
+                if (cosClient == null) {
+                    cosClient = buildCosClient(resolveRequired("COS_REGION", "COS region"));
+                }
+            }
         }
-        if (cosProps.containsKey("COS_ACCESS_KEY") && !cosProps.containsKey("AWS_ACCESS_KEY")) {
-            s3Props.put("AWS_ACCESS_KEY", cosProps.get("COS_ACCESS_KEY"));
-        }
-        if (cosProps.containsKey("COS_SECRET_KEY") && !cosProps.containsKey("AWS_SECRET_KEY")) {
-            s3Props.put("AWS_SECRET_KEY", cosProps.get("COS_SECRET_KEY"));
-        }
-        if (cosProps.containsKey("COS_BUCKET") && !cosProps.containsKey("AWS_BUCKET")) {
-            s3Props.put("AWS_BUCKET", cosProps.get("COS_BUCKET"));
-        }
-        if (cosProps.containsKey("COS_REGION") && !cosProps.containsKey("AWS_REGION")) {
-            s3Props.put("AWS_REGION", cosProps.get("COS_REGION"));
-        }
-        if (cosProps.containsKey("COS_ROLE_ARN") && !cosProps.containsKey("AWS_ROLE_ARN")) {
-            s3Props.put("AWS_ROLE_ARN", cosProps.get("COS_ROLE_ARN"));
-        }
-        s3Props.put("use_path_style", "false");
-        return s3Props;
+        return cosClient;
     }
 
-    // -----------------------------------------------------------------------
-    // Cloud-specific extension overrides
-    // -----------------------------------------------------------------------
+    @Override
+    public RemoteObjects listObjects(String remotePath, String continuationToken) throws IOException {
+        return listObjects(remotePath, continuationToken, 0);
+    }
 
-    /**
-     * Generates a pre-signed PUT URL using the Tencent Cloud COS native SDK.
-     *
-     * @param objectKey the bare object key (no scheme or bucket prefix)
-     */
+    @Override
+    public RemoteObjects listObjects(String remotePath, String continuationToken, int maxKeys) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        ListObjectsRequest request = new ListObjectsRequest();
+        request.setBucketName(uri.bucket());
+        request.setPrefix(uri.key());
+        if (continuationToken != null && !continuationToken.isEmpty()) {
+            request.setMarker(continuationToken);
+        }
+        if (maxKeys > 0) {
+            request.setMaxKeys(maxKeys);
+        }
+        return doListObjects(request, uri.key());
+    }
+
+    @Override
+    public RemoteObjects listObjectsNonRecursive(String remotePath, String continuationToken) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        ListObjectsRequest request = new ListObjectsRequest();
+        request.setBucketName(uri.bucket());
+        request.setPrefix(uri.key());
+        request.setDelimiter("/");
+        if (continuationToken != null && !continuationToken.isEmpty()) {
+            request.setMarker(continuationToken);
+        }
+        return doListObjects(request, uri.key());
+    }
+
+    private RemoteObjects doListObjects(ListObjectsRequest request, String prefix) throws IOException {
+        try {
+            ObjectListing listing = getClient().listObjects(request);
+            List<RemoteObject> objects = listing.getObjectSummaries().stream()
+                    .map(obj -> toRemoteObject(prefix, obj))
+                    .collect(Collectors.toList());
+            return new RemoteObjects(objects, listing.isTruncated(), listing.getNextMarker());
+        } catch (CosClientException e) {
+            throw toIOException("Failed to list COS objects", e);
+        }
+    }
+
+    private RemoteObject toRemoteObject(String prefix, COSObjectSummary obj) {
+        return new RemoteObject(obj.getKey(), relativePath(prefix, obj.getKey()), obj.getETag(),
+                obj.getSize(), obj.getLastModified() == null ? 0L : obj.getLastModified().getTime());
+    }
+
+    @Override
+    public RemoteObject headObject(String remotePath) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            ObjectMetadata metadata = getClient().getObjectMetadata(uri.bucket(), uri.key());
+            return new RemoteObject(uri.key(), uri.key(), metadata.getETag(),
+                    metadata.getContentLength(),
+                    metadata.getLastModified() == null ? 0L : metadata.getLastModified().getTime());
+        } catch (CosClientException e) {
+            throw toIOException("Object not found: " + remotePath, e);
+        }
+    }
+
+    @Override
+    public InputStream openInputStreamAt(String remotePath, long fromByte) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            GetObjectRequest request = new GetObjectRequest(uri.bucket(), uri.key());
+            if (fromByte > 0) {
+                request.setRange(fromByte, Long.MAX_VALUE);
+            }
+            COSObject object = getClient().getObject(request);
+            return object.getObjectContent();
+        } catch (CosClientException e) {
+            throw toIOException("Failed to open COS object: " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void putObject(String remotePath, RequestBody requestBody) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        ObjectMetadata metadata = new ObjectMetadata();
+        metadata.setContentLength(requestBody.contentLength());
+        try (InputStream content = requestBody.content()) {
+            getClient().putObject(uri.bucket(), uri.key(), content, metadata);
+        } catch (CosClientException e) {
+            throw toIOException("putObject failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void deleteObject(String remotePath) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            getClient().deleteObject(uri.bucket(), uri.key());
+        } catch (CosClientException e) {
+            if (!isNotFound(e)) {
+                throw toIOException("deleteObject failed for " + remotePath, e);
+            }
+        }
+    }
+
+    @Override
+    public void copyObject(String srcPath, String dstPath) throws IOException {
+        S3Uri src = S3Uri.parse(srcPath, false);
+        S3Uri dst = S3Uri.parse(dstPath, false);
+        try {
+            getClient().copyObject(new CopyObjectRequest(src.bucket(), src.key(), dst.bucket(), dst.key()));
+        } catch (CosClientException e) {
+            throw toIOException("copyObject failed from " + srcPath + " to " + dstPath, e);
+        }
+    }
+
+    @Override
+    public String initiateMultipartUpload(String remotePath) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            InitiateMultipartUploadResult result = getClient().initiateMultipartUpload(
+                    new InitiateMultipartUploadRequest(uri.bucket(), uri.key()));
+            return result.getUploadId();
+        } catch (CosClientException e) {
+            throw toIOException("initiateMultipartUpload failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public UploadPartResult uploadPart(String remotePath, String uploadId, int partNum,
+            RequestBody body) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try (InputStream content = body.content()) {
+            UploadPartRequest request = new UploadPartRequest()
+                    .withBucketName(uri.bucket())
+                    .withKey(uri.key())
+                    .withUploadId(uploadId)
+                    .withPartNumber(partNum)
+                    .withInputStream(content)
+                    .withPartSize(body.contentLength());
+            com.qcloud.cos.model.UploadPartResult result = getClient().uploadPart(request);
+            return new UploadPartResult(partNum, result.getETag());
+        } catch (CosClientException e) {
+            throw toIOException("uploadPart failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void completeMultipartUpload(String remotePath, String uploadId,
+            List<UploadPartResult> parts) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        List<PartETag> eTags = parts.stream()
+                .map(part -> new PartETag(part.partNumber(), part.etag()))
+                .collect(Collectors.toList());
+        try {
+            getClient().completeMultipartUpload(
+                    new CompleteMultipartUploadRequest(uri.bucket(), uri.key(), uploadId, eTags));
+        } catch (CosClientException e) {
+            throw toIOException("completeMultipartUpload failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void abortMultipartUpload(String remotePath, String uploadId) throws IOException {
+        S3Uri uri = S3Uri.parse(remotePath, false);
+        try {
+            getClient().abortMultipartUpload(new AbortMultipartUploadRequest(uri.bucket(), uri.key(), uploadId));
+        } catch (CosClientException e) {
+            throw toIOException("abortMultipartUpload failed for " + remotePath, e);
+        }
+    }
+
+    @Override
+    public void deleteObjectsByKeys(String bucket, List<String> keys) throws IOException {
+        DeleteObjectsRequest request = new DeleteObjectsRequest(bucket);
+        request.setQuiet(true);
+        request.withKeys(keys.toArray(new String[0]));
+        try {
+            getClient().deleteObjects(request);
+        } catch (CosClientException e) {
+            throw toIOException("deleteObjects failed for bucket=" + bucket, e);
+        }
+    }
+
     @Override
     public String getPresignedUrl(String objectKey) throws IOException {
-        String bucket = resolveRequired("COS_BUCKET", "AWS_BUCKET", "COS bucket for presigned URL");
-        String region = resolveRequired("COS_REGION", "AWS_REGION", "COS region for presigned URL");
+        String bucket = resolveRequired("COS_BUCKET", "COS bucket for presigned URL");
         try {
-            COSClient cos = getCosClient(region);
+            COSClient cos = getClient();
             Date expiration = new Date(System.currentTimeMillis() + (long) SESSION_EXPIRE_SECONDS * 1000);
             URL url = cos.generatePresignedUrl(bucket, objectKey, expiration, HttpMethodName.PUT,
-                    new java.util.HashMap<>(), new java.util.HashMap<>());
+                    new HashMap<>(), new HashMap<>());
             LOG.info("Generated COS presigned URL for key={}", objectKey);
             return url.toString();
         } catch (CosClientException e) {
-            LOG.warn("Failed to generate COS presigned URL for key={}", objectKey, e);
-            throw new IOException("Failed to generate COS presigned URL: " + e.getMessage(), e);
+            throw toIOException("Failed to generate COS presigned URL", e);
         }
     }
 
-    /**
-     * Obtains temporary STS credentials using Tencent Cloud STS ({@code sts.tencentcloudapi.com}).
-     */
     @Override
     public StsCredentials getStsToken() throws IOException {
-        String region = resolveRequired("COS_REGION", "AWS_REGION", "COS region for STS");
-        String accessKey = resolveRequired("COS_ACCESS_KEY", "AWS_ACCESS_KEY", "COS access key");
-        String secretKey = resolveRequired("COS_SECRET_KEY", "AWS_SECRET_KEY", "COS secret key");
-        String roleArn = resolveRequired("COS_ROLE_ARN", "AWS_ROLE_ARN", "COS role ARN");
+        String region = resolveRequired("COS_REGION", "COS region for STS");
+        String accessKey = resolveRequired("COS_ACCESS_KEY", "COS access key");
+        String secretKey = resolveRequired("COS_SECRET_KEY", "COS secret key");
+        String roleArn = resolveRequired("COS_ROLE_ARN", "COS role ARN");
         try {
             Credential credential = new Credential(accessKey, secretKey);
             StsClient stsClient = new StsClient(credential, region);
@@ -160,30 +315,18 @@ public class CosObjStorage extends S3ObjStorage {
                     credentials.getTmpSecretKey(),
                     credentials.getToken());
         } catch (Exception e) {
-            LOG.warn("Failed to get COS STS token, roleArn={}", resolveOpt("COS_ROLE_ARN", "AWS_ROLE_ARN"), e);
+            LOG.warn("Failed to get COS STS token, roleArn={}", roleArn, e);
             throw new IOException("Failed to get COS STS token: " + e.getMessage(), e);
         }
     }
 
-    // -----------------------------------------------------------------------
-    // Native COS client lifecycle
-    // -----------------------------------------------------------------------
-
-    private COSClient getCosClient(String region) throws IOException {
-        if (cosClient == null) {
-            synchronized (this) {
-                if (cosClient == null) {
-                    cosClient = buildCosClient(region);
-                }
-            }
-        }
-        return cosClient;
-    }
-
     protected COSClient buildCosClient(String region) throws IOException {
-        String accessKey = resolveRequired("COS_ACCESS_KEY", "AWS_ACCESS_KEY", "COS access key");
-        String secretKey = resolveRequired("COS_SECRET_KEY", "AWS_SECRET_KEY", "COS secret key");
-        COSCredentials cred = new BasicCOSCredentials(accessKey, secretKey);
+        String accessKey = resolveRequired("COS_ACCESS_KEY", "COS access key");
+        String secretKey = resolveRequired("COS_SECRET_KEY", "COS secret key");
+        String sessionToken = resolveOptional("COS_TOKEN", "COS_SESSION_TOKEN");
+        COSCredentials cred = sessionToken.isEmpty()
+                ? new BasicCOSCredentials(accessKey, secretKey)
+                : new BasicSessionCredentials(accessKey, secretKey, sessionToken);
         ClientConfig clientConfig = new ClientConfig();
         clientConfig.setRegion(new Region(region));
         clientConfig.setHttpProtocol(HttpProtocol.https);
@@ -191,32 +334,53 @@ public class CosObjStorage extends S3ObjStorage {
     }
 
     @Override
-    public void close() throws IOException {
+    public Map<String, String> getProperties() {
+        return cosProperties;
+    }
+
+    @Override
+    public void close() {
         if (cosClient != null) {
             cosClient.shutdown();
             cosClient = null;
         }
-        super.close();
     }
 
-    // -----------------------------------------------------------------------
-    // Property helpers
-    // -----------------------------------------------------------------------
-
-    private String resolveOpt(String primaryKey, String fallbackKey) {
+    private String resolveRequired(String primaryKey, String description) throws IOException {
         String value = cosProperties.get(primaryKey);
-        if (value != null && !value.isEmpty()) {
-            return value;
-        }
-        return cosProperties.get(fallbackKey);
-    }
-
-    private String resolveRequired(String primaryKey, String fallbackKey, String description)
-            throws IOException {
-        String value = resolveOpt(primaryKey, fallbackKey);
         if (value == null || value.isEmpty()) {
             throw new IOException(description + " is required; set " + primaryKey + " in properties");
         }
         return value;
+    }
+
+    private String resolveOptional(String... keys) {
+        for (String key : keys) {
+            String value = cosProperties.get(key);
+            if (value != null && !value.isEmpty()) {
+                return value;
+            }
+        }
+        return "";
+    }
+
+    private IOException toIOException(String message, CosClientException e) {
+        if (isNotFound(e)) {
+            return new FileNotFoundException(message);
+        }
+        return new IOException(message + ": " + e.getMessage(), e);
+    }
+
+    private boolean isNotFound(CosClientException e) {
+        return e instanceof CosServiceException
+                && ((CosServiceException) e).getStatusCode() == 404;
+    }
+
+    private static String relativePath(String prefix, String key) {
+        String normalized = prefix == null || prefix.isEmpty() ? "" : prefix.endsWith("/") ? prefix : prefix + "/";
+        if (!key.startsWith(normalized)) {
+            return key;
+        }
+        return key.substring(normalized.length());
     }
 }
