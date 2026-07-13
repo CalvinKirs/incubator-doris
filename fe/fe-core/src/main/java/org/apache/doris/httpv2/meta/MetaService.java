@@ -80,6 +80,16 @@ public class MetaService extends RestBaseController {
             throw new InvalidClientException("invalid client host: " + clientHost + ":" + clientPort
                 + ", request from " + request.getRemoteHost());
         }
+        // If a cluster meta auth token is configured, additionally require the request to
+        // carry a matching token. An empty token keeps the legacy node-host-only behavior,
+        // so existing clusters and rolling upgrades are unaffected.
+        if (!Strings.isNullOrEmpty(Config.fe_meta_auth_token)) {
+            String reqToken = request.getHeader(Env.FE_META_AUTH_TOKEN_KEY);
+            if (!Config.fe_meta_auth_token.equals(reqToken)) {
+                throw new InvalidClientException("invalid meta auth token, request from "
+                    + request.getRemoteHost());
+            }
+        }
     }
 
     @RequestMapping(path = "/image", method = RequestMethod.GET)

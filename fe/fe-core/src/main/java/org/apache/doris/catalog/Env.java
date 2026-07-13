@@ -370,6 +370,7 @@ public class Env {
     public static final String IMAGE_DIR = "/image";
     public static final String CLIENT_NODE_HOST_KEY = "CLIENT_NODE_HOST";
     public static final String CLIENT_NODE_PORT_KEY = "CLIENT_NODE_PORT";
+    public static final String FE_META_AUTH_TOKEN_KEY = "FE_META_AUTH_TOKEN";
 
     protected String metaDir;
     private String bdbDir;

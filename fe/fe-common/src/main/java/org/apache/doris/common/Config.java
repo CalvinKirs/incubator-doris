@@ -487,6 +487,18 @@ public class Config extends ConfigBase {
     @ConfField(description = {"Cluster token used for internal authentication."})
     public static String auth_token = "";
 
+    @ConfField(description = {"Cluster token for FE meta-service internal HTTP authentication. "
+            + "When set (non-empty), FE meta-service endpoints (such as image/role/check/put/journal_id) "
+            + "additionally require the caller to present a matching token header, on top of the existing "
+            + "node-host check. Empty (default) keeps the legacy behavior of node-host check only, so "
+            + "existing clusters and rolling upgrades are unaffected. Must be identical on all FEs and "
+            + "provisioned in fe.conf before enabling, otherwise FEs will reject each other.",
+            "FE meta-service 内部 HTTP 鉴权使用的集群 token。设置(非空)后,meta-service 端点(如 "
+            + "image/role/check/put/journal_id)在原有 node-host 校验之上,额外要求调用方携带匹配的 token 头。"
+            + "为空(默认)时维持仅 node-host 校验的旧行为,存量集群与滚动升级不受影响。必须在所有 FE 上取值一致,"
+            + "并在启用前写入 fe.conf,否则 FE 之间会互相拒绝。"})
+    public static String fe_meta_auth_token = "";
+
     @ConfField(mutable = true, masterOnly = true,
             description = {"Maximal waiting time for creating a single replica, in seconds. "
                     + "eg. if you create a table with #m tablets and #n replicas for each tablet, "
