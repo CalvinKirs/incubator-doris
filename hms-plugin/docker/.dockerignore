@@ -1,0 +1,6 @@
+*
+!Dockerfile
+!apache-hive-1.1.0-bin.tar.gz
+!hive-site.xml
+!core-site.xml
+!start.sh

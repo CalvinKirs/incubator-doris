@@ -43,6 +43,9 @@ Usage: $0 <options>
      --load-parallel <num>  set the parallel number to load data, default is the 50% of CPU cores
      --hive-mode <mode>     hive startup mode: fast, refresh, rebuild
      --hive-modules <list>  comma separated hive modules to refresh
+     --hms-auth         start the Hive Metastore 1.1.0 fixture of the HMS native authorization plugin.
+                        It is never part of the default or "all" components: without this option it is
+                        neither started nor stopped. Combine with -c to start other components as well.
 
   All valid components:
     mysql,pg,oracle,sqlserver,clickhouse,es,hive2,hive3,iceberg,iceberg-rest,hudi,kafka,mariadb,db2,oceanbase,lakesoul,kerberos,ranger,polaris
@@ -54,6 +57,7 @@ ALL_COMPONENTS="${DEFAULT_COMPONENTS},kafka,lakesoul,ranger,polaris"
 COMPONENTS=$2
 HELP=0
 STOP=0
+HMS_AUTH=0
 NEED_RESERVE_PORTS=0
 export NEED_LOAD_DATA=1
 export LOAD_PARALLEL=$(( $(getconf _NPROCESSORS_ONLN) / 2 ))
@@ -84,6 +88,7 @@ if ! OPTS="$(getopt \
     -l 'load-parallel:' \
     -l 'hive-mode:' \
     -l 'hive-modules:' \
+    -l 'hms-auth' \
     -o 'hc:' \
     -- "$@")"; then
     usage
@@ -95,6 +100,9 @@ if [[ "$#" == 1 ]]; then
     # default
     COMPONENTS="${DEFAULT_COMPONENTS}"
 else
+    # Only -c names components. The positional default above would otherwise turn the second option of
+    # an invocation without -c (for example "--hms-auth --stop") into an invalid component list.
+    COMPONENTS=""
     while true; do
         case "$1" in
         -h)
@@ -133,6 +141,10 @@ else
             export HIVE_MODULES=$2
             shift 2
             ;;
+        --hms-auth)
+            HMS_AUTH=1
+            shift
+            ;;
         --)
             shift
             break
@@ -143,7 +155,8 @@ else
             ;;
         esac
     done
-    if [[ "${COMPONENTS}"x == ""x ]]; then
+    # --hms-auth names its own target: alone it must not pull in (or stop) every other component.
+    if [[ "${COMPONENTS}"x == ""x && "${HMS_AUTH}" -ne 1 ]]; then
         if [[ "${STOP}" -eq 1 ]]; then
             COMPONENTS="${ALL_COMPONENTS}"
         fi
@@ -157,7 +170,7 @@ if [[ "${HELP}" -eq 1 ]]; then
     usage
 fi
 
-if [[ "${COMPONENTS}"x == ""x ]]; then
+if [[ "${COMPONENTS}"x == ""x && "${HMS_AUTH}" -ne 1 ]]; then
     echo "Invalid arguments"
     echo ${COMPONENTS}
     usage
@@ -175,6 +188,7 @@ fi
 echo "Components are: ${COMPONENTS}"
 echo "Container UID: ${CONTAINER_UID}"
 echo "Stop: ${STOP}"
+echo "HMS auth fixture: ${HMS_AUTH}"
 echo "Start progress interval: ${START_PROGRESS_INTERVAL}"
 echo "Hive mode: ${HIVE_MODE}"
 echo "Hive modules: ${HIVE_MODULES}"
@@ -234,6 +248,7 @@ RUN_KERBEROS=0
 RUN_MINIO=0
 RUN_RANGER=0
 RUN_POLARIS=0
+RUN_HMS_AUTH=${HMS_AUTH}
 
 RESERVED_PORTS="65535"
 
@@ -1672,6 +1687,62 @@ start_polaris() {
     fi
 }
 
+start_hms_auth() {
+    echo "RUN_HMS_AUTH"
+    local HMS_AUTH_DIR="${ROOT}/docker-compose/hms-auth"
+    local compose_file="${HMS_AUTH_DIR}/hms-auth.yaml"
+    local runtime="${HMS_AUTH_DIR}/runtime"
+    local archive
+    local config
+    local vars
+
+    . "${HMS_AUTH_DIR}/hms-auth_settings.env"
+    export CONTAINER_UID=${CONTAINER_UID}
+    export HMS_AUTH_UID="$(id -u)"
+    export HMS_AUTH_GID="$(id -g)"
+    # An explicit list keeps envsubst away from the $1 and $0 of the auth_to_local rules.
+    vars='${CONTAINER_UID} ${HMS_AUTH_HOST} ${HMS_AUTH_FS_PORT} ${HMS_AUTH_NN_HTTP_PORT} ${HMS_AUTH_DN_PORT}'
+    vars+=' ${HMS_AUTH_DN_IPC_PORT} ${HMS_AUTH_DN_HTTP_PORT} ${HMS_AUTH_HMS_PORT} ${HMS_AUTH_HS2_PORT}'
+    vars+=' ${HMS_AUTH_KDC_PORT} ${HMS_AUTH_KRB_HMS_PORT} ${HMS_AUTH_REALM} ${HMS_AUTH_HIVE_VERSION}'
+    vars+=' ${HMS_AUTH_UID} ${HMS_AUTH_GID}'
+    envsubst "${vars}" <"${HMS_AUTH_DIR}/hms-auth.yaml.tpl" >"${compose_file}"
+
+    register_stack_metadata "hms-auth" "${compose_file}" ""
+    compose_cmd "${compose_file}" "" down --remove-orphans
+    sudo rm -rf "${runtime}"
+    if [[ "${STOP}" -ne 1 ]]; then
+        mkdir -p "${runtime}/conf" "${runtime}/krb/hms-conf"
+        for config in core-site.xml hdfs-site.xml hive-site.xml; do
+            envsubst "${vars}" <"${HMS_AUTH_DIR}/conf/${config}.tpl" >"${runtime}/conf/${config}"
+        done
+        for config in krb5.conf kdc.conf; do
+            envsubst "${vars}" <"${HMS_AUTH_DIR}/conf/krb/${config}.tpl" >"${runtime}/krb/${config}"
+        done
+        for config in core-site.xml hive-site.xml; do
+            envsubst "${vars}" <"${HMS_AUTH_DIR}/conf/krb/${config}.tpl" >"${runtime}/krb/hms-conf/${config}"
+        done
+
+        archive="${HMS_AUTH_DIR}/apache-hive-${HMS_AUTH_HIVE_VERSION}-bin.tar.gz"
+        if [[ ! -f "${archive}" ]]; then
+            curl -fL --retry 2 "${HMS_AUTH_HIVE_URL}" -o "${archive}.partial"
+            mv "${archive}.partial" "${archive}"
+        fi
+        printf '%s  %s\n' "${HMS_AUTH_HIVE_SHA256}" "${archive}" | sha256sum -c -
+
+        compose_cmd "${compose_file}" "" up --build --remove-orphans -d --wait --wait-timeout 600
+
+        {
+            printf 'export HMS_AUTH_TEST_URI=%q\n' "thrift://${HMS_AUTH_HOST}:${HMS_AUTH_HMS_PORT}"
+            printf 'export HMS_AUTH_TEST_CONTAINER=%q\n' "doris-${CONTAINER_UID}-hms-auth-hms"
+            printf 'export HMS_KRB_TEST_DIR=%q\n' "${runtime}/krb"
+            printf 'export HMS_KRB_TEST_URI=%q\n' "thrift://${HMS_AUTH_HOST}:${HMS_AUTH_KRB_HMS_PORT}"
+            printf 'export HMS_KRB_TEST_CONTAINER=%q\n' "doris-${CONTAINER_UID}-hms-auth-krb-hms"
+            printf 'export HMS_KRB_KDC_CONTAINER=%q\n' "doris-${CONTAINER_UID}-hms-auth-kdc"
+        } >"${runtime}/fixture.env"
+        echo "HMS auth fixture environment: ${runtime}/fixture.env"
+    fi
+}
+
 start_ranger() {
     echo "RUN_RANGER"
     export CONTAINER_UID=${CONTAINER_UID}
@@ -1815,6 +1886,10 @@ fi
 
 if [[ "${RUN_RANGER}" -eq 1 ]]; then
     launch_component "ranger" "${LOG_ROOT}/start_ranger.log" start_ranger
+fi
+
+if [[ "${RUN_HMS_AUTH}" -eq 1 ]]; then
+    launch_component "hms-auth" "${LOG_ROOT}/start_hms_auth.log" start_hms_auth
 fi
 echo "waiting all dockers starting done"
 
