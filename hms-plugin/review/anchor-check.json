@@ -1,0 +1,20 @@
+[
+  {
+    "path": "hms-plugin/src/main/java/org/apache/doris/plugin/hms/HmsNameResolver.java",
+    "line": 63,
+    "exact": true,
+    "snippet": "        if (!(target instanceof HMSExternalTable)) {\n            throw new HmsAuthorizationException(\"HMS authorization: cannot resolve Hive table \" + table);\n        }"
+  },
+  {
+    "path": "hms-plugin/src/main/java/org/apache/doris/plugin/hms/HmsAccessController.java",
+    "line": 123,
+    "exact": true,
+    "snippet": "            HmsOperation operation = HmsOperation.resolve(wanted, wanted == PrivPredicate.SELECT ? null : plan.get());\n            HmsObjectName name = names.remoteTable(ctl, db, tbl);"
+  },
+  {
+    "path": "fe/fe-core/src/main/java/org/apache/doris/datasource/ExternalCatalog.java",
+    "line": 946,
+    "exact": true,
+    "snippet": "        if (localDbName.equalsIgnoreCase(InfoSchemaDb.DATABASE_NAME)) {\n            return new ExternalInfoSchemaDatabase(this, dbId);\n        }"
+  }
+]

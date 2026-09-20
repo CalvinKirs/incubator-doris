@@ -1,0 +1,56 @@
+Read-only review probes; existing FE 43027, user hmscaseuser; no grants or fixtures changed.
+
+[allowed_count]
+SQL: select count(*) from hms_case_sensitive.hms_case_db.mixed_table
+exit: 0
+count(*)
+1
+
+
+[denied_count]
+SQL: select count(*) from hms_case_sensitive.hms_case_db.role_only
+exit: 1
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = Access denied; you need (at least one of) the (Admin_priv,Select_priv) privilege(s) on table role_only for this operation
+
+
+[denied_constant]
+SQL: select 1 from hms_case_sensitive.hms_case_db.role_only limit 1
+exit: 1
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = Access denied; you need (at least one of) the (Admin_priv,Select_priv) privilege(s) on table role_only for this operation
+
+
+[denied_cte]
+SQL: with denied_source as (select id from hms_case_sensitive.hms_case_db.role_only) select * from denied_source
+exit: 1
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = HMS authorization denied Admin_priv,Select_priv on hms_case_sensitive.hms_case_db.role_only for hmscaseuser
+
+
+[denied_explain]
+SQL: explain select id from hms_case_sensitive.hms_case_db.role_only
+exit: 1
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = HMS authorization denied Admin_priv,Select_priv on hms_case_sensitive.hms_case_db.role_only for hmscaseuser
+
+
+[external_information_schema]
+SQL: select table_name from hms_case_sensitive.information_schema.tables limit 1
+exit: 1
+ERROR 1105 (HY000) at line 1: errCode = 2, detailMessage = HMS authorization: cannot resolve Hive table tables
+
+
+[internal_information_schema]
+SQL: select table_name from internal.information_schema.tables limit 1
+exit: 0
+table_name
+tables
+
+
+[show_tables]
+SQL: show tables from hms_case_sensitive.hms_case_db
+exit: 0
+Tables_in_hms_case_db
+fold_created
+mixed_table
+owner_created
+role_only
+user_only
+
