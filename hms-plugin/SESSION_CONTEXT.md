@@ -1,6 +1,6 @@
 # HMS authorization plugin — session context
 
-Updated: 2026-09-20. This file carries the current conversation's decisions into the new worktree; it is not a copy of the chat transcript or a new Codex session.
+Updated: 2026-09-28. This file carries the current conversation's decisions into the new worktree; it is not a copy of the chat transcript or a new Codex session.
 
 ## Workspace
 
@@ -322,3 +322,52 @@ Updated: 2026-09-20. This file carries the current conversation's decisions into
 - User decision: this does not matter for the customer ("那不影响"). No getOps() fallback is to be implemented.
   If the customer turns out to run 4.1.3, document "ALTER TABLE unavailable on 4.1.3" instead of changing code.
 - Behaviour on a 4.1.3 FE was never run, only link-checked.
+
+## 2026-09-28: the customer runs SelectDB Enterprise 4.1.3, not Apache 4.1.3
+
+- Customer FE failed at the first privilege check with AbstractMethodError on
+  HmsAccessController.checkColsPriv(PrivilegeContext, ...). All 11 stack line numbers match selectdb-core
+  tag-selectdb-doris-4.1.3 (fad440c166e "Bump version to cloud-26.1.2 enterprise-4.1.3"); none match Apache 4.1.
+- SelectDB changed every CatalogAccessController method from UserIdentity to PrivilegeContext (UserIdentity +
+  currentRoles) for SU support: seawinde, 9168ac22479 (2026-03-12) -> 3.1 f7c6ebf940a -> 4.0 eeadec63b84 (#8178)
+  -> 4.1 ace8e98261d (#10190, 2026-07-08). No UserIdentity bridge was kept, so every plugin built against Apache
+  fe-core breaks there. The 09-20 link check ran against Apache 4.1.3 and could not see this.
+- User decision: the plugin is based on SelectDB Enterprise 4.1.3. The source of truth for that line is now
+  enterprise-plugins (.worktrees/feat-hms-authorization); this Apache worktree copy stays on branch-4.1 and is not
+  updated.
+- fe-core of the tag installed as 4.1.3-selectdb-SNAPSHOT from worktree
+  /mnt/disk2/gq/doris-worktree/selectdb-doris-4.1.3 (detached at the tag, thirdparty -> selectdb-core installed,
+  thrift 0.16).
+- Plugin changes (enterprise-plugins, uncommitted): HmsAccessController takes PrivilegeContext and passes the
+  caller's context unchanged to the local controller (admin check, information_schema delegation) so SU-narrowed
+  roles stay narrowed; HMS identity comes from context.getCurrentUser(). The tag has no
+  AlterTableCommand.getNereidsOps() (only getOps(), which translates clauses before they are validated), so the
+  earlier "ALTER unavailable on 4.1.3" decision is now implemented explicitly: every ALTER fails closed with
+  "ALTER is not supported by this plugin build" (admin bypass still applies). SQL suites' five ALTER cases now
+  expect that error. READMEs/pom comments say SelectDB Enterprise 4.1.3.
+- Verified: spotless + build, 40 unit tests, HmsDockerIntegrationTest 7/7 and HmsKerberosIntegrationTest 7/7 on
+  the running fixture. JAR sha256 734c6a9bdae659d6010cbf765c8a602e69f0b4c78f13deab70c59f0b6ac6fd94 (17 classes).
+- SQL on a real SelectDB cluster (same day): user-provided package /mnt/disk2/gq/selectdb-release/
+  selectdb-doris-4.1.3-bin-x64.tar.gz (FE/BE build hash fad440c166e = the tag). FE and BE both enterprise, in
+  /mnt/disk2/gq/doris-release/hms-auth-selectdb/{fe,be}; ports in ports.json there (query 45030, http 44030,
+  rpc 45020, BE heartbeat 45050). The FE needs a ClusterGuard license: used the CI one the selectdb-core pipeline
+  downloads (regression-test/pipeline/common/doris-utils.sh, unlimited-license.tar.xz, subject "Pipeline CI",
+  expires 2099), paths set as LICENSE_PUBLIC_KEY_PATH/LICENSE_FILE_PATH in fe.conf. On this FE `select 1` already
+  needs an alive BE.
+- Regression: Doris worktree's framework with --conf .../hms-auth-selectdb/regression-conf.groovy (suitePath/dataPath
+  point at enterprise-plugins suites), -d hms_p0. hms_native_authorization and hms_case_authorization pass;
+  hms_kerberos_authorization passes with JAVA_OPTS "--add-opens=java.security.jgss/sun.security.krb5=ALL-UNNAMED
+  -Djava.security.krb5.conf=<compose runtime/krb/krb5.conf>" and -parallel 1 (without them the regression JVM
+  itself fails "Can't get Kerberos realm"). Logs: hms-auth-selectdb/logs/.
+- Control on the same cluster: the delivered JAR (3e38fd43...) reproduces the customer's AbstractMethodError
+  (CatalogAccessController.java:62, AccessControllerManager.java:340/327; client "Lost connection"); the new JAR
+  (734c6a9b...) returns rows through the admin-bypass catalog and a clean "HMS authorization denied" for root
+  without HMS grants. Both JARs kept in hms-auth-selectdb/jars/. The cluster is left running.
+- Delivery JAR: rebuilt from enterprise-plugins commit 0326273 (pushed to feat/hms-authorization-plugin),
+  sha256 8b301c0e79c6415a5a8b2e3fb175c13f711b9acc642cd7d541e8aa5482a95eac. Its 17 classes are identical to the
+  tested 734c6a9b... JAR; only the embedded META-INF/maven pom.xml comment differs. Deployed to hms-auth-selectdb
+  and smoke-tested. Plugin zip sha256 ac7578dbe3e4f2446b6f05d188ee379f6aa80bdf5f4e6064905034269f96c7b2.
+- 18:19-18:22 the three SQL suites were rerun with the delivery JAR 8b301c0e deployed (FE started 18:16:50):
+  all pass; realdata/*.out equals the expected .out byte for byte (17/9/6 result sets); fe.warn.log has no
+  AbstractMethodError after that start (the only one is 18:04:27, the deliberate old-JAR reproduction).
+  Logs: hms-auth-selectdb/logs/final-*.log.
