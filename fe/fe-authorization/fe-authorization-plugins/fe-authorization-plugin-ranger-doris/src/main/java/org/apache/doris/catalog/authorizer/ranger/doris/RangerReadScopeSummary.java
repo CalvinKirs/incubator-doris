@@ -37,8 +37,10 @@ import org.apache.ranger.plugin.util.ServicePolicies;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * An over-approximation of the scopes where a static, direct-user ADMIN or SELECT policy could grant access.
@@ -52,12 +54,14 @@ final class RangerReadScopeSummary {
 
     private final Map<Long, Map<String, Integer>> policies;
     private final Map<String, Integer> users;
+    private final Set<Long> rowFilterPolicyIds;
     private final String definition;
 
     private RangerReadScopeSummary(Map<Long, Map<String, Integer>> policies, Map<String, Integer> users,
-            String definition) {
+            Set<Long> rowFilterPolicyIds, String definition) {
         this.policies = ImmutableMap.copyOf(policies);
         this.users = ImmutableMap.copyOf(users);
+        this.rowFilterPolicyIds = Set.copyOf(rowFilterPolicyIds);
         this.definition = definition;
     }
 
@@ -67,6 +71,7 @@ final class RangerReadScopeSummary {
             return null;
         }
         Map<Long, Map<String, Integer>> policies = new HashMap<>();
+        Set<Long> rowFilterPolicyIds = new HashSet<>();
         String definition = JsonUtils.objectToJson(downloaded.getServiceDef());
         if (definition == null) {
             return null;
@@ -80,6 +85,7 @@ final class RangerReadScopeSummary {
                 return null;
             }
             policies.putAll(previous.policies);
+            rowFilterPolicyIds.addAll(previous.rowFilterPolicyIds);
             for (RangerPolicyDelta delta : downloaded.getPolicyDeltas()) {
                 if (delta.getPolicy() == null || delta.getPolicy().getId() == null || delta.getChangeType() == null) {
                     return null;
@@ -87,15 +93,23 @@ final class RangerReadScopeSummary {
                 if (!StringUtils.equals(delta.getServiceType(), downloaded.getServiceDef().getName())) {
                     return null;
                 }
+                RangerPolicy policy = delta.getPolicy();
+                Long id = policy.getId();
+                // Ranger updates the resource trie selected by the delta's type. A type change
+                // requires a full snapshot before the access fast path can trust the new scopes.
+                if (policies.containsKey(id) && rowFilterPolicyIds.contains(id) != isRowFilter(policy)) {
+                    return null;
+                }
                 if (delta.getChangeType() == RangerPolicyDelta.CHANGE_TYPE_POLICY_DELETE) {
-                    policies.remove(delta.getPolicy().getId());
+                    policies.remove(id);
+                    rowFilterPolicyIds.remove(id);
                     continue;
                 }
                 if (delta.getChangeType() != RangerPolicyDelta.CHANGE_TYPE_POLICY_CREATE
                         && delta.getChangeType() != RangerPolicyDelta.CHANGE_TYPE_POLICY_UPDATE) {
                     return null;
                 }
-                if (!addPolicy(policies, delta.getPolicy(), resources)) {
+                if (!addPolicy(policies, rowFilterPolicyIds, policy, resources)) {
                     return null;
                 }
             }
@@ -107,7 +121,7 @@ final class RangerReadScopeSummary {
                 if (policies.containsKey(policy.getId())) {
                     return null;
                 }
-                if (!addPolicy(policies, policy, resources)) {
+                if (!addPolicy(policies, rowFilterPolicyIds, policy, resources)) {
                     return null;
                 }
             }
@@ -121,7 +135,7 @@ final class RangerReadScopeSummary {
             }
             policy.forEach((user, scopes) -> users.merge(user, scopes, (first, second) -> first | second));
         }
-        return new RangerReadScopeSummary(policies, users, definition);
+        return new RangerReadScopeSummary(policies, users, rowFilterPolicyIds, definition);
     }
 
     boolean mayGrant(String user, RangerDorisResource resource) {
@@ -213,20 +227,44 @@ final class RangerReadScopeSummary {
         return true;
     }
 
-    private static boolean addPolicy(Map<Long, Map<String, Integer>> policies, RangerPolicy policy,
+    private static boolean isRowFilter(RangerPolicy policy) {
+        return Integer.valueOf(RangerPolicy.POLICY_TYPE_ROWFILTER).equals(policy.getPolicyType());
+    }
+
+    private static boolean addPolicy(Map<Long, Map<String, Integer>> policies, Set<Long> rowFilterPolicyIds,
+            RangerPolicy policy,
             Map<String, RangerResourceDef> definitions) {
         if (policy.getId() == null) {
             return false;
+        }
+        boolean rowFilter = isRowFilter(policy);
+        if (rowFilter) {
+            rowFilterPolicyIds.add(policy.getId());
         }
         if (!Boolean.TRUE.equals(policy.getIsEnabled())) {
             policies.put(policy.getId(), Collections.emptyMap());
             return true;
         }
-        if ((policy.getPolicyType() != null && policy.getPolicyType() != RangerPolicy.POLICY_TYPE_ACCESS)
-                || !policy.getDenyPolicyItems().isEmpty() || !policy.getAllowExceptions().isEmpty()
+        if (!policy.getDenyPolicyItems().isEmpty() || !policy.getAllowExceptions().isEmpty()
                 || !policy.getDenyExceptions().isEmpty() || Boolean.TRUE.equals(policy.getIsDenyAllElse())
                 || (policy.getConditions() != null && !policy.getConditions().isEmpty())
                 || !policy.getValiditySchedules().isEmpty() || StringUtils.isNotBlank(policy.getZoneName())) {
+            return false;
+        }
+        if (rowFilter) {
+            if (!policy.getPolicyItems().isEmpty() || !policy.getDataMaskPolicyItems().isEmpty()) {
+                return false;
+            }
+            for (RangerPolicyItem item : policy.getRowFilterPolicyItems()) {
+                if (!item.getConditions().isEmpty() || !item.getGroups().isEmpty() || !item.getRoles().isEmpty()) {
+                    return false;
+                }
+            }
+            // Only the access summary treats this as empty. Ranger still installs the full row policy.
+            policies.put(policy.getId(), Collections.emptyMap());
+            return true;
+        }
+        if (policy.getPolicyType() != null && policy.getPolicyType() != RangerPolicy.POLICY_TYPE_ACCESS) {
             return false;
         }
         Map<String, Integer> bindings = new HashMap<>();
