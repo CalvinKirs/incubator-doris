@@ -19,6 +19,8 @@ package org.apache.doris.catalog.authorizer.ranger.doris;
 
 import com.google.common.collect.ImmutableMap;
 import org.apache.commons.lang3.StringUtils;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.apache.ranger.authorization.hadoop.config.RangerPluginConfig;
 import org.apache.ranger.authorization.utils.JsonUtils;
 import org.apache.ranger.plugin.contextenricher.RangerUserStoreEnricher;
@@ -48,6 +50,7 @@ import java.util.Set;
  * it asks Ranger about the table's columns. Visibility questions and column decisions still reach Ranger.
  */
 final class RangerReadScopeSummary {
+    private static final Logger LOG = LogManager.getLogger(RangerReadScopeSummary.class);
     private static final List<String> HIERARCHY = Arrays.asList("catalog", "database", "table", "column");
     private static final int GLOBAL = 1 << 4;
     private static final int MAX_USER_BINDINGS = 65_536;
@@ -95,10 +98,18 @@ final class RangerReadScopeSummary {
                 }
                 RangerPolicy policy = delta.getPolicy();
                 Long id = policy.getId();
-                // Ranger updates the resource trie selected by the delta's type. A type change
-                // requires a full snapshot before the access fast path can trust the new scopes.
-                if (policies.containsKey(id) && rowFilterPolicyIds.contains(id) != isRowFilter(policy)) {
-                    return null;
+                if (policies.containsKey(id)) {
+                    // Ranger can replace trie entries on CREATE while retaining the prior evaluator in its list.
+                    if (delta.getChangeType() == RangerPolicyDelta.CHANGE_TYPE_POLICY_CREATE) {
+                        LOG.debug("Ranger read access summary skipped: duplicate CREATE for policy {}", id);
+                        return null;
+                    }
+                    // Ranger updates the resource trie selected by the delta's type. Require a full
+                    // snapshot after a type change before the access fast path trusts the scopes.
+                    if (rowFilterPolicyIds.contains(id) != isRowFilter(policy)) {
+                        LOG.debug("Ranger read access summary skipped: ROWFILTER type changed for policy {}", id);
+                        return null;
+                    }
                 }
                 if (delta.getChangeType() == RangerPolicyDelta.CHANGE_TYPE_POLICY_DELETE) {
                     policies.remove(id);
@@ -256,7 +267,8 @@ final class RangerReadScopeSummary {
                 return false;
             }
             for (RangerPolicyItem item : policy.getRowFilterPolicyItems()) {
-                if (!item.getConditions().isEmpty() || !item.getGroups().isEmpty() || !item.getRoles().isEmpty()) {
+                if (item == null || !item.getConditions().isEmpty()
+                        || !item.getGroups().isEmpty() || !item.getRoles().isEmpty()) {
                     return false;
                 }
             }

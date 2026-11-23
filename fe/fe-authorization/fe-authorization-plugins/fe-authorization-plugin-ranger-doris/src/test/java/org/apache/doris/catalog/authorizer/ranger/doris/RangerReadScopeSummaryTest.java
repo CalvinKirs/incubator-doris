@@ -183,30 +183,37 @@ class RangerReadScopeSummaryTest {
 
     @Test
     void auditProcessorKeepsEveryOriginalCheckAndItsAuditPolicy() throws Exception {
-        CountingPlugin plugin = new CountingPlugin();
-        List<Long> audited = new ArrayList<>();
-        try {
-            plugin.setPolicies(snapshot(1, policy(7, "alice", "SELECT", resource("db", "t", "c1")),
-                    rowFilter(8, "c1 = 1")));
-            plugin.setResultProcessor(new RangerAccessResultProcessor() {
-                @Override
-                public void processResult(RangerAccessResult result) {
-                    audited.add(result.getAuditPolicyId());
-                }
+        for (String setting : List.of("true", "false")) {
+            CountingPlugin plugin = new CountingPlugin(configWithIndex(setting));
+            List<Long> audited = new ArrayList<>();
+            try {
+                plugin.setPolicies(snapshot(1, policy(7, "alice", "SELECT", resource("db", "t", "c1")),
+                        rowFilter(8, "c1 = 1")));
+                plugin.setResultProcessor(new RangerAccessResultProcessor() {
+                    @Override
+                    public void processResult(RangerAccessResult result) {
+                        audited.add(result.getAuditPolicyId());
+                    }
 
-                @Override
-                public void processResults(Collection<RangerAccessResult> results) {
-                    results.forEach(this::processResult);
-                }
-            });
-            new RangerDorisAccessController(plugin, CONTEXT).checkPrivilege(ALICE,
-                    AuthorizedResource.columns("internal", "db", "t", Set.of("c1")),
-                    AccessRequirements.SELECT, AccessContext.NONE);
-            Assertions.assertEquals(10, plugin.requests.get());
-            Assertions.assertEquals(10, audited.size());
-            Assertions.assertEquals(7L, audited.get(audited.size() - 1));
-        } finally {
-            plugin.cleanup();
+                    @Override
+                    public void processResults(Collection<RangerAccessResult> results) {
+                        results.forEach(this::processResult);
+                    }
+                });
+                RangerDorisAccessController controller = new RangerDorisAccessController(plugin, CONTEXT);
+                controller.checkPrivilege(ALICE, AuthorizedResource.columns("internal", "db", "t", Set.of("c1")),
+                        AccessRequirements.SELECT, AccessContext.NONE);
+                Assertions.assertEquals(10, plugin.requests.get());
+                Assertions.assertEquals(10, audited.size());
+                Assertions.assertEquals(7L, audited.get(audited.size() - 1));
+                assertDenied(controller, ALICE, "t", "c2");
+                Assertions.assertEquals(20, audited.size());
+                Assertions.assertEquals(List.of(RowFilterSpec.restrictive("8:1", "c1 = 1")),
+                        controller.getRowFilters(ALICE, AuthorizedResource.table("internal", "db", "t"),
+                                AccessContext.NONE));
+            } finally {
+                plugin.cleanup();
+            }
         }
     }
 
@@ -263,19 +270,20 @@ class RangerReadScopeSummaryTest {
 
     @Test
     void independentRowFiltersPreserveNativeFiltersAndColumnDecisions() throws Exception {
-        RangerPluginConfig nativeConfig = config();
-        nativeConfig.set(nativeConfig.getPropertyPrefix() + RangerReadResourceIndex.ENABLED, "false");
+        RangerPluginConfig unset = config();
+        unset.unset(unset.getPropertyPrefix() + RangerReadResourceIndex.ENABLED);
         CountingPlugin indexed = new CountingPlugin();
-        CountingPlugin nativePlugin = new CountingPlugin(nativeConfig);
+        CountingPlugin nativePlugin = new CountingPlugin(configWithIndex("false"));
+        CountingPlugin defaultPlugin = new CountingPlugin(unset);
         try {
             indexed.setPolicies(mixedSnapshot(1));
             nativePlugin.setPolicies(mixedSnapshot(1));
-            RangerDorisAccessController fast = new RangerDorisAccessController(indexed, CONTEXT);
-            RangerDorisAccessController nativeController = new RangerDorisAccessController(nativePlugin, CONTEXT);
+            defaultPlugin.setPolicies(mixedSnapshot(1));
             AuthorizedResource.Table filtered = AuthorizedResource.table("internal", "db", "t");
             AuthorizedSubject bob = AuthorizedSubject.of("bob", "%");
             AuthorizedSubject eve = AuthorizedSubject.of("eve", "%");
-            for (RangerDorisAccessController controller : List.of(fast, nativeController)) {
+            for (CountingPlugin plugin : List.of(indexed, nativePlugin, defaultPlugin)) {
+                RangerDorisAccessController controller = new RangerDorisAccessController(plugin, CONTEXT);
                 for (String table : List.of("ordinary", "t")) {
                     controller.checkPrivilege(ALICE, AuthorizedResource.columns("internal", "db", table, Set.of("c1")),
                             AccessRequirements.SELECT, AccessContext.NONE);
@@ -296,9 +304,11 @@ class RangerReadScopeSummaryTest {
             }
             Assertions.assertEquals(0, indexed.requests.get());
             Assertions.assertTrue(nativePlugin.requests.get() > 0);
+            Assertions.assertEquals(nativePlugin.requests.get(), defaultPlugin.requests.get());
         } finally {
             indexed.cleanup();
             nativePlugin.cleanup();
+            defaultPlugin.cleanup();
         }
     }
 
@@ -350,6 +360,65 @@ class RangerReadScopeSummaryTest {
     }
 
     @Test
+    void duplicateCreateDeltaCannotResurrectAnOldSelectGrant() throws Exception {
+        CountingPlugin plugin = new CountingPlugin();
+        RangerDorisAccessController controller = new RangerDorisAccessController(plugin, CONTEXT);
+        RangerDorisResource oldColumn = new RangerDorisResource(DorisObjectType.COLUMN, "internal", "db", "t", "c1");
+        AuthorizedResource.Table table = AuthorizedResource.table("internal", "db", "t");
+        try {
+            plugin.setPolicies(snapshot(1, policy(1, "alice", "SELECT", resource("db", "t", "c1")),
+                    rowFilter(7, "c1 = 1")));
+            controller.checkPrivilege(ALICE, AuthorizedResource.columns("internal", "db", "t", Set.of("c1")),
+                    AccessRequirements.SELECT, AccessContext.NONE);
+            RangerPolicy replacement = policy(1, "alice", "SELECT", resource("db", "t", "c2"));
+            plugin.setPolicies(deltaSnapshot(2, RangerPolicyDelta.CHANGE_TYPE_POLICY_CREATE, replacement));
+
+            Assertions.assertEquals(2, plugin.getPoliciesVersion());
+            Assertions.assertFalse(plugin.isAccessAllowed(request("alice", "SELECT", oldColumn)).getIsAllowed(),
+                    "the native trie no longer contains the original permission");
+            assertDenied(controller, ALICE, "t", "c1");
+            controller.checkPrivilege(ALICE, AuthorizedResource.columns("internal", "db", "t", Set.of("c2")),
+                    AccessRequirements.SELECT, AccessContext.NONE);
+            Assertions.assertEquals(List.of(RowFilterSpec.restrictive("7:1", "c1 = 1")),
+                    controller.getRowFilters(ALICE, table, AccessContext.NONE));
+            // Only a fresh full snapshot can re-enable pruning after the bad delta.
+            plugin.setPolicies(snapshot(3, replacement, rowFilter(7, "c1 = 1")));
+            RangerDorisResource newColumn = new RangerDorisResource(
+                    DorisObjectType.COLUMN, "internal", "db", "t", "c2");
+            Assertions.assertEquals(Boolean.TRUE, plugin.indexedReadPrivilege("alice", DorisAccessType.SELECT, newColumn));
+            assertDenied(controller, ALICE, "t", "c1");
+        } finally {
+            plugin.cleanup();
+        }
+    }
+
+    @Test
+    void malformedRowFilterPrunedByNativeEngineCannotInterruptPublication() throws Exception {
+        RangerPluginConfig config = config();
+        config.getPolicyEngineOptions().evaluateDelegateAdminOnly = true;
+        config.set(config.getPropertyPrefix() + ".dedup.strings", "false");
+        CountingPlugin plugin = new CountingPlugin(config);
+        RangerPolicy grant = policy(1, "alice", "SELECT", resource("db", "t", "c1"));
+        grant.getPolicyItems().get(0).setDelegateAdmin(true);
+        RangerPolicy malformed = rowFilter(7, "c1 = 1");
+        malformed.setRowFilterPolicyItems(Collections.singletonList(null));
+        try {
+            plugin.setPolicies(snapshot(1, grant));
+            Assertions.assertDoesNotThrow(() -> plugin.setPolicies(snapshot(2, grant, malformed)));
+            Assertions.assertEquals(2, plugin.getPoliciesVersion());
+            RangerDorisAccessController controller = new RangerDorisAccessController(plugin, CONTEXT);
+            controller.checkPrivilege(ALICE, AuthorizedResource.columns("internal", "db", "t", Set.of("c1")),
+                    AccessRequirements.SELECT, AccessContext.NONE);
+            Assertions.assertTrue(plugin.requests.get() > 0, "malformed input should leave SELECT to the native engine");
+            assertDenied(controller, ALICE, "t", "c2");
+            Assertions.assertTrue(controller.getRowFilters(ALICE, AuthorizedResource.table("internal", "db", "t"),
+                    AccessContext.NONE).isEmpty(), "the configured native engine prunes the row policy");
+        } finally {
+            plugin.cleanup();
+        }
+    }
+
+    @Test
     void unsupportedDataPoliciesStillUseTheNativePath() {
         RangerPolicy conditioned = rowFilter(7, "c1 = 1");
         conditioned.getRowFilterPolicyItems().get(0).setConditions(List.of(
@@ -367,36 +436,45 @@ class RangerReadScopeSummaryTest {
 
     @Test
     void combinedRowFilterAndDataMaskKeepNativeResults() throws Exception {
-        RangerPolicy mask = policy(9, "alice", "SELECT", resource("db", "t", "c1"));
-        mask.setPolicyType(RangerPolicy.POLICY_TYPE_DATAMASK);
-        mask.setPolicyItems(Collections.emptyList());
-        RangerPolicy.RangerDataMaskPolicyItem item = new RangerPolicy.RangerDataMaskPolicyItem();
-        item.setUsers(List.of("alice"));
-        item.setAccesses(List.of(new RangerPolicyItemAccess("SELECT", true)));
-        item.setDataMaskInfo(new RangerPolicy.RangerPolicyItemDataMaskInfo("MASK_NULL", "", ""));
-        mask.setDataMaskPolicyItems(List.of(item));
-        ServicePolicies policies = mixedSnapshot(1);
-        policies.getPolicies().add(mask);
+        for (String setting : List.of("true", "false")) {
+            RangerPolicy mask = policy(9, "alice", "SELECT", resource("db", "t", "c1"));
+            mask.setPolicyType(RangerPolicy.POLICY_TYPE_DATAMASK);
+            mask.setPolicyItems(Collections.emptyList());
+            RangerPolicy.RangerDataMaskPolicyItem item = new RangerPolicy.RangerDataMaskPolicyItem();
+            item.setUsers(List.of("alice"));
+            item.setAccesses(List.of(new RangerPolicyItemAccess("SELECT", true)));
+            item.setDataMaskInfo(new RangerPolicy.RangerPolicyItemDataMaskInfo("MASK_NULL", "", ""));
+            mask.setDataMaskPolicyItems(List.of(item));
+            ServicePolicies policies = mixedSnapshot(1);
+            policies.getPolicies().add(mask);
 
-        CountingPlugin plugin = new CountingPlugin();
-        try {
-            plugin.setPolicies(policies);
-            RangerDorisAccessController controller = new RangerDorisAccessController(plugin, CONTEXT);
-            AuthorizedResource.Table table = AuthorizedResource.table("internal", "db", "t");
-            AuthorizedSubject bob = AuthorizedSubject.of("bob", "%");
-            controller.checkPrivilege(ALICE, AuthorizedResource.columns("internal", "db", "t", Set.of("c1")),
-                    AccessRequirements.SELECT, AccessContext.NONE);
-            Assertions.assertTrue(plugin.requests.get() > 0, "a separate DATAMASK still requires native SELECT");
-            Assertions.assertEquals(List.of(RowFilterSpec.restrictive("7:1", "c1 = 1")),
-                    controller.getRowFilters(ALICE, table, AccessContext.NONE));
-            Map<String, DataMaskSpec> masks = controller.getDataMasks(ALICE, table,
-                    Set.of("c1", "c2"), AccessContext.NONE);
-            Assertions.assertEquals(Set.of("c1"), masks.keySet());
-            Assertions.assertEquals("NULL", masks.get("c1").getMaskSql());
-            Assertions.assertTrue(controller.getDataMasks(bob, table, Set.of("c1"), AccessContext.NONE).isEmpty());
-        } finally {
-            plugin.cleanup();
+            CountingPlugin plugin = new CountingPlugin(configWithIndex(setting));
+            try {
+                plugin.setPolicies(policies);
+                RangerDorisAccessController controller = new RangerDorisAccessController(plugin, CONTEXT);
+                AuthorizedResource.Table table = AuthorizedResource.table("internal", "db", "t");
+                AuthorizedSubject bob = AuthorizedSubject.of("bob", "%");
+                controller.checkPrivilege(ALICE, AuthorizedResource.columns("internal", "db", "t", Set.of("c1")),
+                        AccessRequirements.SELECT, AccessContext.NONE);
+                Assertions.assertEquals(10, plugin.requests.get(), "DATAMASK still requires native SELECT");
+                assertDenied(controller, ALICE, "t", "c2");
+                Assertions.assertEquals(List.of(RowFilterSpec.restrictive("7:1", "c1 = 1")),
+                        controller.getRowFilters(ALICE, table, AccessContext.NONE));
+                Map<String, DataMaskSpec> masks = controller.getDataMasks(ALICE, table,
+                        Set.of("c1", "c2"), AccessContext.NONE);
+                Assertions.assertEquals(Set.of("c1"), masks.keySet());
+                Assertions.assertEquals("NULL", masks.get("c1").getMaskSql());
+                Assertions.assertTrue(controller.getDataMasks(bob, table, Set.of("c1"), AccessContext.NONE).isEmpty());
+            } finally {
+                plugin.cleanup();
+            }
         }
+    }
+
+    private static RangerPluginConfig configWithIndex(String setting) {
+        RangerPluginConfig config = config();
+        config.set(config.getPropertyPrefix() + RangerReadResourceIndex.ENABLED, setting);
+        return config;
     }
 
     private static void assertDenied(RangerDorisAccessController controller, AuthorizedSubject subject,

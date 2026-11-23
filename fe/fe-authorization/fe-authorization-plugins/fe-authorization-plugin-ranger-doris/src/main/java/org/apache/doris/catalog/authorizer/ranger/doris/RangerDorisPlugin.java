@@ -82,30 +82,37 @@ public class RangerDorisPlugin extends LoadedRangerPlugin {
         super.setPolicies(policies);
         if (synchronousRefresh || policies == null || policies.getPolicyVersion() == null
                 || getPoliciesVersion() != policies.getPolicyVersion()) {
+            LOG.debug("Ranger read index skipped: synchronous refresh or unverified policy version");
             return;
         }
         RangerPolicyEngine installedEngine = getPolicyEngine();
         if (installedEngine == oldEngine && getPoliciesVersion() == oldVersion) {
             // Ranger catches a failed installation and can keep an engine with the payload's version.
             // Compile only after a verifiable installation, including an in-place delta version change.
+            LOG.debug("Ranger read index skipped: policy engine installation was not observed");
             return;
         }
         if (!RangerReadResourceIndex.isEnabled(getConfig())) {
+            LOG.debug("Ranger read index skipped: disabled by plugin configuration");
             return;
         }
         Map<String, String> installedConfig = getServiceConfigs();
         RangerReadScopeSummary summary = RangerReadScopeSummary.build(policies, getConfig(), installedConfig,
                 previous == null ? null : previous.summary);
-        if (summary != null) {
-            RangerReadResourceIndex resources = RangerReadResourceIndex.build(
-                    installedEngine, getConfig(), installedConfig);
-            readScopes = new ReadScopes(installedEngine, installedConfig, summary, resources);
-            if (resources != null) {
-                LOG.info("Ranger read resource index initialized: version={}, tables={}, users={}, bindings={},"
-                                + " nativeUsers={}",
-                        getPoliciesVersion(), resources.tableCount(), resources.userCount(), resources.bindingCount(),
-                        resources.nativeUserCount());
-            }
+        if (summary == null) {
+            LOG.debug("Ranger read index skipped: policy snapshot does not support an access summary");
+            return;
+        }
+        RangerReadResourceIndex resources = RangerReadResourceIndex.build(
+                installedEngine, getConfig(), installedConfig);
+        readScopes = new ReadScopes(installedEngine, installedConfig, summary, resources);
+        if (resources != null) {
+            LOG.info("Ranger read resource index initialized: version={}, tables={}, users={}, bindings={},"
+                            + " nativeUsers={}",
+                    getPoliciesVersion(), resources.tableCount(), resources.userCount(), resources.bindingCount(),
+                    resources.nativeUserCount());
+        } else {
+            LOG.debug("Ranger read resource index skipped: unsupported engine, resource shape or binding limit");
         }
     }
 
