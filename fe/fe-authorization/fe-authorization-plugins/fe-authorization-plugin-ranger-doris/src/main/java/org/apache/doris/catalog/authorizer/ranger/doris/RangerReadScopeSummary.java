@@ -101,13 +101,17 @@ final class RangerReadScopeSummary {
                 if (policies.containsKey(id)) {
                     // Ranger can replace trie entries on CREATE while retaining the prior evaluator in its list.
                     if (delta.getChangeType() == RangerPolicyDelta.CHANGE_TYPE_POLICY_CREATE) {
-                        LOG.debug("Ranger read access summary skipped: duplicate CREATE for policy {}", id);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Ranger read access summary skipped: duplicate CREATE for policy {}", id);
+                        }
                         return null;
                     }
                     // Ranger updates the resource trie selected by the delta's type. Require a full
                     // snapshot after a type change before the access fast path trusts the scopes.
                     if (rowFilterPolicyIds.contains(id) != isRowFilter(policy)) {
-                        LOG.debug("Ranger read access summary skipped: ROWFILTER type changed for policy {}", id);
+                        if (LOG.isDebugEnabled()) {
+                            LOG.debug("Ranger read access summary skipped: ROWFILTER type changed for policy {}", id);
+                        }
                         return null;
                     }
                 }
